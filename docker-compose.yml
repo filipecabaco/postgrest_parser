@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: supabase/postgres:15.8.1.040
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgrest_parser_test
+    volumes:
+      - ./priv/docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgrest_parser_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
