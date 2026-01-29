@@ -2275,4 +2275,216 @@ defmodule PostgrestParserTest do
              ] = params.filters
     end
   end
+
+  describe "SelectParser error handling" do
+    test "rejects unexpected '(' after simple field" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("select=id,name(")
+      assert msg =~ "unclosed parenthesis" or msg =~ "unexpected"
+    end
+
+    test "allows field names with spaces" do
+      {:ok, result} = PostgrestParser.SelectParser.parse("id something")
+      assert [%SelectItem{name: "id something"}] = result
+    end
+
+    test "rejects unexpected tokens after relation" do
+      assert {:error, msg} = PostgrestParser.SelectParser.parse("users(id)extra")
+      assert msg =~ "unexpected token after relation"
+    end
+
+    test "allows simple field list" do
+      {:ok, result} = PostgrestParser.SelectParser.parse("users,id")
+      assert [%SelectItem{name: "users"}, %SelectItem{name: "id"}] = result
+    end
+
+    test "rejects unclosed parenthesis" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("select=users(id,name")
+      assert msg =~ "unclosed parenthesis"
+    end
+
+    test "rejects nested unclosed parenthesis" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("select=users(orders(id)")
+      assert msg =~ "unclosed parenthesis"
+    end
+
+    test "allows nested relations" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=users(id(extra))")
+      assert [%SelectItem{type: :relation, children: [%SelectItem{type: :relation}]}] =
+               params.select
+    end
+
+    test "rejects invalid field name with parenthesis" do
+      assert {:error, msg} = PostgrestParser.SelectParser.parse("field(name")
+      assert msg =~ "invalid field name" or msg =~ "unclosed"
+    end
+
+    test "allows empty alias before colon" do
+      {:ok, result} = PostgrestParser.SelectParser.parse(":alias")
+      assert [%SelectItem{name: "alias", alias: ""}] = result
+    end
+
+    test "rejects empty field in list" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("select=users(,id)")
+      assert msg =~ "unexpected tokens" or msg =~ "empty"
+    end
+
+    test "allows trailing comma in select" do
+      {:ok, result} = PostgrestParser.SelectParser.parse("users(id,)")
+      assert [%SelectItem{name: "users", children: children}] = result
+      assert length(children) == 1
+    end
+
+    test "parses field with exclamation in nested select" do
+      {:ok, result} = PostgrestParser.SelectParser.parse("users(id!inner)")
+      assert [%SelectItem{type: :relation, name: "users", children: children}] = result
+      assert [%SelectItem{type: :field, name: "id"}] = children
+    end
+  end
+
+  describe "SchemaCache error handling" do
+    test "handles ETS table not found errors" do
+      pid = self()
+      ref = make_ref()
+
+      spawn(fn ->
+        result =
+          PostgrestParser.SchemaCache.get_table(
+            "nonexistent_tenant",
+            "public",
+            "nonexistent_table"
+          )
+
+        send(pid, {ref, result})
+      end)
+
+      receive do
+        {^ref, result} -> assert result == {:error, :not_found}
+      after
+        1000 -> flunk("Timeout waiting for result")
+      end
+    end
+
+    test "handles missing relationships gracefully" do
+      relationships =
+        PostgrestParser.SchemaCache.get_relationships("nonexistent", "public", "users")
+
+      assert relationships == []
+    end
+
+    test "handles relationship not found" do
+      result =
+        PostgrestParser.SchemaCache.find_relationship(
+          "nonexistent",
+          "public",
+          "users",
+          "orders"
+        )
+
+      assert result == {:error, :not_found}
+    end
+
+    test "handles hint-based relationship lookup with no matches" do
+      result =
+        PostgrestParser.SchemaCache.find_relationship_with_hint(
+          "nonexistent",
+          "public",
+          "users",
+          "orders",
+          "some_hint"
+        )
+
+      assert result == {:error, :not_found}
+    end
+  end
+
+  describe "RelationBuilder error paths" do
+    test "handles relationship not found in relation building" do
+      params = %ParsedParams{
+        select: [
+          %SelectItem{
+            type: :relation,
+            name: "nonexistent_relation",
+            children: [%SelectItem{type: :field, name: "id"}]
+          }
+        ],
+        filters: [],
+        order: [],
+        limit: nil,
+        offset: nil
+      }
+
+      result = PostgrestParser.to_sql_with_relations("tenant", "public", "users", params)
+      assert {:error, _} = result
+    end
+  end
+
+  describe "FilterParser additional error cases" do
+    test "handles malformed filter value" do
+      result = PostgrestParser.parse_query_string("id=eq.")
+      assert {:ok, params} = result
+      assert [%Filter{value: ""}] = params.filters
+    end
+
+    test "handles filter with only operator" do
+      result = PostgrestParser.parse_query_string("field=gt")
+      assert {:error, _} = result
+    end
+
+    test "handles unknown operator" do
+      result = PostgrestParser.parse_query_string("id=unknown.value")
+      assert {:error, msg} = result
+      assert msg =~ "unknown operator"
+    end
+
+    test "handles empty operator in negation" do
+      result = PostgrestParser.parse_query_string("id=not.")
+      assert {:error, _} = result
+    end
+
+    test "parses filter with complex JSON path" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->nested->deep->>value=eq.test")
+      assert [%Filter{field: %Field{json_path: json_path}}] = params.filters
+      assert length(json_path) == 3
+    end
+  end
+
+  describe "OrderParser additional error cases" do
+    test "handles invalid nulls option" do
+      result = PostgrestParser.parse_query_string("order=id.asc.invalidnulls")
+      assert {:error, _} = result
+    end
+
+    test "treats invalid direction as field name" do
+      result = PostgrestParser.parse_query_string("order=id.invaliddir")
+      assert {:ok, params} = result
+      assert [%OrderTerm{field: %Field{name: "id.invaliddir"}}] = params.order
+    end
+
+    test "handles empty order value" do
+      result = PostgrestParser.parse_query_string("order=")
+      assert {:ok, params} = result
+      assert params.order == []
+    end
+  end
+
+  describe "LogicParser additional error scenarios" do
+    test "parses deeply nested logic correctly" do
+      result =
+        PostgrestParser.parse_query_string(
+          "and=(or=(status.eq.a,status.eq.b),active.eq.true)"
+        )
+
+      assert {:ok, _} = result
+    end
+
+    test "handles malformed logic tree" do
+      result = PostgrestParser.parse_query_string("and=(incomplete")
+      assert {:error, _} = result
+    end
+
+    test "handles invalid nested logic syntax" do
+      result = PostgrestParser.parse_query_string("and=status.eq.active")
+      assert {:error, _} = result
+    end
+  end
 end

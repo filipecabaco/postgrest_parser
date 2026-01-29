@@ -18,7 +18,7 @@ defmodule PostgrestParser.MixProject do
       source_url: "https://github.com/supabase/postgrest_parser",
       dialyzer: dialyzer(),
       aliases: aliases(),
-      test_coverage: [summary: [threshold: 89]]
+      test_coverage: [summary: [threshold: 91]]
     ]
   end
 
