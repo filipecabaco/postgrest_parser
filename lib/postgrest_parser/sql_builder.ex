@@ -40,7 +40,7 @@ defmodule PostgrestParser.SqlBuilder do
       ...>   offset: nil
       ...> }
       iex> PostgrestParser.SqlBuilder.build_select("users", params)
-      {:ok, %{query: ~s(SELECT * FROM "users"), params: []}}
+      {:ok, %{query: ~s(SELECT * FROM "users"), params: [], tables: ["users"]}}
   """
   @spec build_select(String.t(), ParsedParams.t()) :: {:ok, map()} | {:error, String.t()}
   def build_select(table, %ParsedParams{} = params) do
@@ -51,7 +51,10 @@ defmodule PostgrestParser.SqlBuilder do
          {:ok, query} <- add_where_clause(query, params.filters),
          {:ok, query} <- add_order_clause(query, params.order),
          {:ok, query} <- add_limit_offset(query, params.limit, params.offset) do
-      {:ok, finalize(query)}
+      relation_tables = extract_relation_tables(params.select)
+      all_tables = [table | relation_tables] |> Enum.uniq()
+      result = finalize(query)
+      {:ok, Map.put(result, :tables, all_tables)}
     end
   end
 
@@ -126,7 +129,10 @@ defmodule PostgrestParser.SqlBuilder do
     with {:ok, query} <- add_where_clause(query, params.filters),
          {:ok, query} <- add_order_clause(query, params.order),
          {:ok, query} <- add_limit_offset(query, params.limit, params.offset) do
-      {:ok, finalize(query)}
+      relation_tables = extract_relation_tables(params.select)
+      all_tables = [table | relation_tables] |> Enum.uniq()
+      result = finalize(query)
+      {:ok, Map.put(result, :tables, all_tables)}
     end
   end
 
@@ -480,6 +486,27 @@ defmodule PostgrestParser.SqlBuilder do
     {query, offset_ref} = add_param(query, offset)
     {:ok, add_sql(query, [" LIMIT ", limit_ref, " OFFSET ", offset_ref])}
   end
+
+  defp extract_relation_tables(nil), do: []
+  defp extract_relation_tables([]), do: []
+
+  defp extract_relation_tables(select_items) do
+    select_items
+    |> Enum.flat_map(&extract_tables_from_item/1)
+    |> Enum.uniq()
+  end
+
+  defp extract_tables_from_item(%SelectItem{type: :relation, name: name, children: children}) do
+    child_tables = if children, do: extract_relation_tables(children), else: []
+    [name | child_tables]
+  end
+
+  defp extract_tables_from_item(%SelectItem{type: :spread, name: name, children: children}) do
+    child_tables = if children, do: extract_relation_tables(children), else: []
+    [name | child_tables]
+  end
+
+  defp extract_tables_from_item(_), do: []
 
   defp add_sql(%Query{sql: sql} = query, parts) do
     %{query | sql: [sql | parts]}

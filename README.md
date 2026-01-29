@@ -14,7 +14,8 @@ PostgrestParser converts HTTP URL query parameters into PostgreSQL queries, enab
 PostgrestParser.query_string_to_sql("users", "select=id,name&status=eq.active&order=created_at.desc&limit=10")
 # => {:ok, %{
 #      query: ~s(SELECT "id", "name" FROM "users" WHERE "status" = $1 ORDER BY "created_at" DESC LIMIT $2),
-#      params: ["active", 10]
+#      params: ["active", 10],
+#      tables: ["users"]
 #    }}
 ```
 
@@ -52,11 +53,20 @@ end
 ```elixir
 # Parse and generate SQL in one step
 {:ok, result} = PostgrestParser.query_string_to_sql("users", "select=id,name&status=eq.active")
-# => %{query: ~s(SELECT "id", "name" FROM "users" WHERE "status" = $1), params: ["active"]}
+# => %{
+#      query: ~s(SELECT "id", "name" FROM "users" WHERE "status" = $1),
+#      params: ["active"],
+#      tables: ["users"]
+#    }
 
 # Or parse first, then generate SQL
 {:ok, params} = PostgrestParser.parse_query_string("select=id,name&id=eq.1&order=id.desc")
 {:ok, result} = PostgrestParser.to_sql("users", params)
+# => %{
+#      query: ~s(SELECT "id", "name" FROM "users" WHERE "id" = $1 ORDER BY "id" DESC),
+#      params: [1],
+#      tables: ["users"]
+#    }
 ```
 
 ### Filter Examples
@@ -120,6 +130,32 @@ end
 
 # Pagination
 "limit=10&offset=20"
+```
+
+### Table Tracking
+
+The parser automatically extracts all tables involved in a query, including the main table and any relations referenced in the SELECT clause. This is useful for:
+
+- **Change Data Capture (CDC)**: Subscribe to changes on all tables used in a query
+- **Database Publications**: Create publications for specific tables
+- **Query Analysis**: Track which tables are being accessed
+- **Cache Invalidation**: Know which caches to invalidate when data changes
+
+```elixir
+# Simple query - only main table
+{:ok, result} = PostgrestParser.query_string_to_sql("users", "select=id,name")
+result.tables
+# => ["users"]
+
+# Query with relations - main table and related tables
+{:ok, result} = PostgrestParser.query_string_to_sql("users", "select=id,orders(id,total),posts(title)")
+result.tables
+# => ["users", "orders", "posts"]
+
+# Nested relations - all tables in the hierarchy
+{:ok, result} = PostgrestParser.query_string_to_sql("users", "select=id,orders(id,items(product_id))")
+result.tables
+# => ["users", "orders", "items"]
 ```
 
 ### Building Filter Clauses (for CDC)
@@ -246,7 +282,11 @@ All SQL generation uses parameterized queries with `$1`, `$2`, etc. placeholders
 ```elixir
 # Safe - uses parameterized query
 PostgrestParser.query_string_to_sql("users", "name=eq.'; DROP TABLE users;--")
-# => %{query: ~s(SELECT * FROM "users" WHERE "name" = $1), params: ["'; DROP TABLE users;--"]}
+# => %{
+#      query: ~s(SELECT * FROM "users" WHERE "name" = $1),
+#      params: ["'; DROP TABLE users;--"],
+#      tables: ["users"]
+#    }
 ```
 
 ## License

@@ -2487,4 +2487,122 @@ defmodule PostgrestParserTest do
       assert {:error, _} = result
     end
   end
+
+  describe "table extraction" do
+    test "extracts main table from simple query" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=*&id=eq.1")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert result.tables == ["users"]
+    end
+
+    test "extracts main table from query without select" do
+      {:ok, params} = PostgrestParser.parse_query_string("id=eq.1")
+      {:ok, result} = PostgrestParser.to_sql("products", params)
+
+      assert result.tables == ["products"]
+    end
+
+    test "extracts main table and single relation" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=id,name,orders(id,total)")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "orders" in result.tables
+      assert length(result.tables) == 2
+    end
+
+    test "extracts main table and multiple relations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=id,orders(id),posts(title),comments(text)")
+
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "orders" in result.tables
+      assert "posts" in result.tables
+      assert "comments" in result.tables
+      assert length(result.tables) == 4
+    end
+
+    test "extracts main table and nested relations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=id,orders(id,items(product_id))")
+
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "orders" in result.tables
+      assert "items" in result.tables
+      assert length(result.tables) == 3
+    end
+
+    test "extracts tables from spread relations" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=id,...profile(bio)")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "profile" in result.tables
+      assert length(result.tables) == 2
+    end
+
+    test "extracts tables from deeply nested relations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "select=id,orders(id,customer(name,profile(avatar)))"
+        )
+
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "orders" in result.tables
+      assert "customer" in result.tables
+      assert "profile" in result.tables
+      assert length(result.tables) == 4
+    end
+
+    test "deduplicates table names when same relation appears multiple times" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=id,orders(id),orders(total)")
+
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "orders" in result.tables
+      assert length(result.tables) == 2
+    end
+
+    test "extracts tables with filters and ordering" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "select=id,orders(id)&status=eq.active&order=created_at.desc"
+        )
+
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "orders" in result.tables
+    end
+
+    test "extracts tables from query with only fields" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=id,name,email")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert result.tables == ["users"]
+    end
+
+    test "extracts tables with mixed field and relation types" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "select=id,name,orders(id),email,posts(title),created_at"
+        )
+
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert "users" in result.tables
+      assert "orders" in result.tables
+      assert "posts" in result.tables
+      assert length(result.tables) == 3
+    end
+  end
 end

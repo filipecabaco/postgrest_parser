@@ -102,7 +102,7 @@ defmodule PostgrestParser do
 
       iex> {:ok, params} = PostgrestParser.parse_query_string("select=*&id=eq.1")
       iex> PostgrestParser.to_sql("users", params)
-      {:ok, %{query: ~s(SELECT * FROM "users" WHERE "id" = $1), params: [1]}}
+      {:ok, %{query: ~s(SELECT * FROM "users" WHERE "id" = $1), params: [1], tables: ["users"]}}
   """
   @spec to_sql(String.t(), ParsedParams.t()) :: {:ok, map()} | {:error, String.t()}
   def to_sql(table, %ParsedParams{} = params) when is_binary(table) do
@@ -150,7 +150,7 @@ defmodule PostgrestParser do
   ## Examples
 
       iex> PostgrestParser.query_string_to_sql("users", "select=*&id=eq.1")
-      {:ok, %{query: ~s(SELECT * FROM "users" WHERE "id" = $1), params: [1]}}
+      {:ok, %{query: ~s(SELECT * FROM "users" WHERE "id" = $1), params: [1], tables: ["users"]}}
   """
   @spec query_string_to_sql(String.t(), String.t()) :: {:ok, map()} | {:error, String.t()}
   def query_string_to_sql(table, query_string) do
