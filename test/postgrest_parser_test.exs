@@ -302,7 +302,9 @@ defmodule PostgrestParserTest do
 
     test "parses negated phfts filter" do
       {:ok, params} = PostgrestParser.parse_query_string("content=not.phfts.postgres database")
-      assert [%Filter{operator: :phfts, value: "postgres database", negated?: true}] = params.filters
+
+      assert [%Filter{operator: :phfts, value: "postgres database", negated?: true}] =
+               params.filters
     end
 
     test "parses negated wfts filter" do
@@ -885,9 +887,7 @@ defmodule PostgrestParserTest do
 
     test "parses very deeply nested relation structure" do
       {:ok, params} =
-        PostgrestParser.parse_query_string(
-          "select=a(b(c(d(e(f(g))))))"
-        )
+        PostgrestParser.parse_query_string("select=a(b(c(d(e(f(g))))))")
 
       assert [%SelectItem{type: :relation, name: "a"}] = params.select
     end
@@ -2078,7 +2078,8 @@ defmodule PostgrestParserTest do
     end
 
     test "parses negated operator with all operators" do
-      operators = ~w(eq neq gt gte lt lte like ilike match imatch in is fts plfts phfts wfts cs cd ov sl sr nxl nxr adj)
+      operators =
+        ~w(eq neq gt gte lt lte like ilike match imatch in is fts plfts phfts wfts cs cd ov sl sr nxl nxr adj)
 
       for op <- operators do
         value = if op == "in" or op == "ov", do: "(1,2)", else: "test"
@@ -2129,7 +2130,14 @@ defmodule PostgrestParserTest do
     end
 
     test "handles all comparison operators with integer values" do
-      operators = [{"eq", "5"}, {"neq", "10"}, {"gt", "15"}, {"gte", "20"}, {"lt", "25"}, {"lte", "30"}]
+      operators = [
+        {"eq", "5"},
+        {"neq", "10"},
+        {"gt", "15"},
+        {"gte", "20"},
+        {"lt", "25"},
+        {"lte", "30"}
+      ]
 
       for {op, val} <- operators do
         {:ok, params} = PostgrestParser.parse_query_string("age=#{op}.#{val}")
@@ -2138,7 +2146,12 @@ defmodule PostgrestParserTest do
     end
 
     test "handles all pattern operators with values" do
-      operators = [{"like", "%test%"}, {"ilike", "%TEST%"}, {"match", "^test"}, {"imatch", "^TEST"}]
+      operators = [
+        {"like", "%test%"},
+        {"ilike", "%TEST%"},
+        {"match", "^test"},
+        {"imatch", "^TEST"}
+      ]
 
       for {op, val} <- operators do
         {:ok, params} = PostgrestParser.parse_query_string("name=#{op}.#{val}")
@@ -2309,6 +2322,7 @@ defmodule PostgrestParserTest do
 
     test "allows nested relations" do
       {:ok, params} = PostgrestParser.parse_query_string("select=users(id(extra))")
+
       assert [%SelectItem{type: :relation, children: [%SelectItem{type: :relation}]}] =
                params.select
     end
@@ -2470,9 +2484,7 @@ defmodule PostgrestParserTest do
   describe "LogicParser additional error scenarios" do
     test "parses deeply nested logic correctly" do
       result =
-        PostgrestParser.parse_query_string(
-          "and=(or=(status.eq.a,status.eq.b),active.eq.true)"
-        )
+        PostgrestParser.parse_query_string("and=(or=(status.eq.a,status.eq.b),active.eq.true)")
 
       assert {:ok, _} = result
     end
@@ -2548,9 +2560,7 @@ defmodule PostgrestParserTest do
 
     test "extracts tables from deeply nested relations" do
       {:ok, params} =
-        PostgrestParser.parse_query_string(
-          "select=id,orders(id,customer(name,profile(avatar)))"
-        )
+        PostgrestParser.parse_query_string("select=id,orders(id,customer(name,profile(avatar)))")
 
       {:ok, result} = PostgrestParser.to_sql("users", params)
 
