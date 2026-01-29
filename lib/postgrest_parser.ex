@@ -64,9 +64,12 @@ defmodule PostgrestParser do
   """
   @spec parse_query_string(String.t()) :: {:ok, ParsedParams.t()} | {:error, String.t()}
   def parse_query_string(query_string) when is_binary(query_string) do
-    query_string
-    |> URI.decode_query()
-    |> parse_params()
+    pairs =
+      query_string
+      |> URI.query_decoder()
+      |> Enum.to_list()
+
+    parse_params_from_list(pairs)
   end
 
   @doc """
@@ -90,6 +93,20 @@ defmodule PostgrestParser do
          {:ok, order} <- parse_order(params),
          {:ok, limit} <- parse_limit(params),
          {:ok, offset} <- parse_offset(params) do
+      {:ok,
+       %ParsedParams{select: select, filters: filters, order: order, limit: limit, offset: offset}}
+    end
+  end
+
+  @doc false
+  @spec parse_params_from_list([{String.t(), String.t()}]) ::
+          {:ok, ParsedParams.t()} | {:error, String.t()}
+  def parse_params_from_list(pairs) when is_list(pairs) do
+    with {:ok, select} <- parse_select_from_list(pairs),
+         {:ok, filters} <- parse_filters_from_list(pairs),
+         {:ok, order} <- parse_order_from_list(pairs),
+         {:ok, limit} <- parse_limit_from_list(pairs),
+         {:ok, offset} <- parse_offset_from_list(pairs) do
       {:ok,
        %ParsedParams{select: select, filters: filters, order: order, limit: limit, offset: offset}}
     end
@@ -230,6 +247,56 @@ defmodule PostgrestParser do
     case Integer.parse(str) do
       {int, ""} when int >= 0 -> {:ok, int}
       _ -> {:error, "#{name} must be a non-negative integer"}
+    end
+  end
+
+  defp parse_select_from_list(pairs) do
+    case List.keyfind(pairs, "select", 0) do
+      nil -> {:ok, nil}
+      {_, select_str} -> SelectParser.parse(select_str)
+    end
+  end
+
+  defp parse_filters_from_list(pairs) do
+    pairs
+    |> Enum.reject(fn {key, _} -> FilterParser.reserved_key?(key) end)
+    |> Enum.reduce_while({:ok, []}, fn {key, value}, {:ok, acc} ->
+      result =
+        if LogicParser.logic_key?(key) do
+          LogicParser.parse(key, value)
+        else
+          FilterParser.parse(key, value)
+        end
+
+      case result do
+        {:ok, filter} -> {:cont, {:ok, [filter | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, filters} -> {:ok, Enum.reverse(filters)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp parse_order_from_list(pairs) do
+    case List.keyfind(pairs, "order", 0) do
+      nil -> {:ok, []}
+      {_, order_str} -> OrderParser.parse(order_str)
+    end
+  end
+
+  defp parse_limit_from_list(pairs) do
+    case List.keyfind(pairs, "limit", 0) do
+      nil -> {:ok, nil}
+      {_, limit_str} -> parse_integer(limit_str, "limit")
+    end
+  end
+
+  defp parse_offset_from_list(pairs) do
+    case List.keyfind(pairs, "offset", 0) do
+      nil -> {:ok, nil}
+      {_, offset_str} -> parse_integer(offset_str, "offset")
     end
   end
 end

@@ -191,11 +191,33 @@ defmodule PostgrestParser.SqlBuilder do
          type: :field,
          name: name,
          alias: alias_name,
+         hint: {:json_path_cast, path, cast}
+       }) do
+    json_expr = "(#{build_json_path_sql(name, path)})::#{cast}"
+    alias_part = if alias_name, do: " AS #{quote_identifier(alias_name)}", else: ""
+    json_expr <> alias_part
+  end
+
+  defp select_item_to_sql(%SelectItem{
+         type: :field,
+         name: name,
+         alias: alias_name,
          hint: {:json_path, path}
        }) do
     json_expr = build_json_path_sql(name, path)
     alias_part = if alias_name, do: " AS #{quote_identifier(alias_name)}", else: ""
     json_expr <> alias_part
+  end
+
+  defp select_item_to_sql(%SelectItem{
+         type: :field,
+         name: name,
+         alias: alias_name,
+         hint: {:cast, cast}
+       }) do
+    field_expr = "#{quote_identifier(name)}::#{cast}"
+    alias_part = if alias_name, do: " AS #{quote_identifier(alias_name)}", else: ""
+    field_expr <> alias_part
   end
 
   defp select_item_to_sql(%SelectItem{type: :relation, name: name, children: children}) do
@@ -239,7 +261,15 @@ defmodule PostgrestParser.SqlBuilder do
     field_sql = field_to_sql(filter.field)
 
     {query, clause} =
-      operator_to_sql(query, field_sql, filter.operator, filter.value, filter.negated?)
+      operator_to_sql(
+        query,
+        field_sql,
+        filter.operator,
+        filter.value,
+        filter.negated?,
+        filter.quantifier,
+        filter.language
+      )
 
     {:ok, query, clause}
   end
@@ -279,8 +309,17 @@ defmodule PostgrestParser.SqlBuilder do
     end
   end
 
-  defp field_to_sql(%Field{name: name, json_path: []}), do: quote_identifier(name)
-  defp field_to_sql(%Field{name: name, json_path: path}), do: build_json_path_sql(name, path)
+  defp field_to_sql(%Field{name: name, json_path: [], cast: nil}), do: quote_identifier(name)
+
+  defp field_to_sql(%Field{name: name, json_path: [], cast: cast}) when is_binary(cast),
+    do: "#{quote_identifier(name)}::#{cast}"
+
+  defp field_to_sql(%Field{name: name, json_path: path, cast: nil}),
+    do: build_json_path_sql(name, path)
+
+  defp field_to_sql(%Field{name: name, json_path: path, cast: cast}) when is_binary(cast),
+    do: "(#{build_json_path_sql(name, path)})::#{cast}"
+
   defp field_to_sql(name) when is_binary(name), do: quote_identifier(name)
 
   defp build_json_path_sql(name, path) do
@@ -294,144 +333,294 @@ defmodule PostgrestParser.SqlBuilder do
     "#{quote_identifier(name)}#{path_sql}"
   end
 
-  defp operator_to_sql(query, field, :eq, value, negated?) do
-    op = if negated?, do: "<>", else: "="
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{op} #{param_ref}"}
+  defp operator_to_sql(query, field, :eq, value, negated?, quantifier, _language) do
+    case quantifier do
+      :any when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}= ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}= ALL(#{param_ref})"}
+
+      nil ->
+        op = if negated?, do: "<>", else: "="
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{op} #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :neq, value, negated?) do
-    op = if negated?, do: "=", else: "<>"
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{op} #{param_ref}"}
+  defp operator_to_sql(query, field, :neq, value, negated?, quantifier, _language) do
+    case quantifier do
+      :any when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}<> ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}<> ALL(#{param_ref})"}
+
+      nil ->
+        op = if negated?, do: "=", else: "<>"
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{op} #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :gt, value, negated?) do
-    op = if negated?, do: "<=", else: ">"
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{op} #{param_ref}"}
+  defp operator_to_sql(query, field, :gt, value, negated?, quantifier, _language) do
+    case quantifier do
+      :any when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}> ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}> ALL(#{param_ref})"}
+
+      nil ->
+        op = if negated?, do: "<=", else: ">"
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{op} #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :gte, value, negated?) do
-    op = if negated?, do: "<", else: ">="
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{op} #{param_ref}"}
+  defp operator_to_sql(query, field, :gte, value, negated?, quantifier, _language) do
+    case quantifier do
+      :any when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}>= ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}>= ALL(#{param_ref})"}
+
+      nil ->
+        op = if negated?, do: "<", else: ">="
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{op} #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :lt, value, negated?) do
-    op = if negated?, do: ">=", else: "<"
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{op} #{param_ref}"}
+  defp operator_to_sql(query, field, :lt, value, negated?, quantifier, _language) do
+    case quantifier do
+      :any when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}< ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}< ALL(#{param_ref})"}
+
+      nil ->
+        op = if negated?, do: ">=", else: "<"
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{op} #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :lte, value, negated?) do
-    op = if negated?, do: ">", else: "<="
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{op} #{param_ref}"}
+  defp operator_to_sql(query, field, :lte, value, negated?, quantifier, _language) do
+    case quantifier do
+      :any when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}<= ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        not_prefix = if negated?, do: "NOT ", else: ""
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}<= ALL(#{param_ref})"}
+
+      nil ->
+        op = if negated?, do: ">", else: "<="
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{op} #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :like, value, negated?) do
+  defp operator_to_sql(query, field, :like, value, negated?, quantifier, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{not_prefix}LIKE #{param_ref}"}
+
+    case quantifier do
+      :any when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}LIKE ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}LIKE ALL(#{param_ref})"}
+
+      nil ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}LIKE #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :ilike, value, negated?) do
+  defp operator_to_sql(query, field, :ilike, value, negated?, quantifier, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{not_prefix}ILIKE #{param_ref}"}
+
+    case quantifier do
+      :any when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}ILIKE ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}ILIKE ALL(#{param_ref})"}
+
+      nil ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}ILIKE #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :match, value, negated?) do
+  defp operator_to_sql(query, field, :match, value, negated?, quantifier, _language) do
     not_prefix = if negated?, do: "!", else: ""
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{not_prefix}~ #{param_ref}"}
+
+    case quantifier do
+      :any when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}~ ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}~ ALL(#{param_ref})"}
+
+      nil ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}~ #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :imatch, value, negated?) do
+  defp operator_to_sql(query, field, :imatch, value, negated?, quantifier, _language) do
     not_prefix = if negated?, do: "!", else: ""
-    {query, param_ref} = add_param(query, value)
-    {query, "#{field} #{not_prefix}~* #{param_ref}"}
+
+    case quantifier do
+      :any when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}~* ANY(#{param_ref})"}
+
+      :all when is_list(value) ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}~* ALL(#{param_ref})"}
+
+      nil ->
+        {query, param_ref} = add_param(query, value)
+        {query, "#{field} #{not_prefix}~* #{param_ref}"}
+    end
   end
 
-  defp operator_to_sql(query, field, :in, values, negated?) when is_list(values) do
+  defp operator_to_sql(query, field, :in, values, negated?, nil, _language)
+       when is_list(values) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, values)
     {query, "#{field} #{not_prefix}= ANY(#{param_ref})"}
   end
 
-  defp operator_to_sql(query, field, :is, value, negated?) do
+  defp operator_to_sql(query, field, :is, value, negated?, nil, _language) do
     clause = build_is_clause(field, value, negated?)
     {query, clause}
   end
 
-  defp operator_to_sql(query, field, :fts, value, negated?) do
+  defp operator_to_sql(query, field, :fts, value, negated?, nil, language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
-    {query, "#{not_prefix}#{field} @@ to_tsquery(#{param_ref})"}
+
+    tsquery =
+      if language, do: "to_tsquery('#{language}', #{param_ref})", else: "to_tsquery(#{param_ref})"
+
+    {query, "#{not_prefix}#{field} @@ #{tsquery}"}
   end
 
-  defp operator_to_sql(query, field, :plfts, value, negated?) do
+  defp operator_to_sql(query, field, :plfts, value, negated?, nil, language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
-    {query, "#{not_prefix}#{field} @@ plainto_tsquery(#{param_ref})"}
+
+    tsquery =
+      if language,
+        do: "plainto_tsquery('#{language}', #{param_ref})",
+        else: "plainto_tsquery(#{param_ref})"
+
+    {query, "#{not_prefix}#{field} @@ #{tsquery}"}
   end
 
-  defp operator_to_sql(query, field, :phfts, value, negated?) do
+  defp operator_to_sql(query, field, :phfts, value, negated?, nil, language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
-    {query, "#{not_prefix}#{field} @@ phraseto_tsquery(#{param_ref})"}
+
+    tsquery =
+      if language,
+        do: "phraseto_tsquery('#{language}', #{param_ref})",
+        else: "phraseto_tsquery(#{param_ref})"
+
+    {query, "#{not_prefix}#{field} @@ #{tsquery}"}
   end
 
-  defp operator_to_sql(query, field, :wfts, value, negated?) do
+  defp operator_to_sql(query, field, :wfts, value, negated?, nil, language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
-    {query, "#{not_prefix}#{field} @@ websearch_to_tsquery(#{param_ref})"}
+
+    tsquery =
+      if language,
+        do: "websearch_to_tsquery('#{language}', #{param_ref})",
+        else: "websearch_to_tsquery(#{param_ref})"
+
+    {query, "#{not_prefix}#{field} @@ #{tsquery}"}
   end
 
-  defp operator_to_sql(query, field, :cs, value, negated?) do
+  defp operator_to_sql(query, field, :cs, value, negated?, nil, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
     {query, "#{not_prefix}#{field} @> #{param_ref}"}
   end
 
-  defp operator_to_sql(query, field, :cd, value, negated?) do
+  defp operator_to_sql(query, field, :cd, value, negated?, nil, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
     {query, "#{not_prefix}#{field} <@ #{param_ref}"}
   end
 
-  defp operator_to_sql(query, field, :ov, values, negated?) when is_list(values) do
+  defp operator_to_sql(query, field, :ov, values, negated?, nil, _language)
+       when is_list(values) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, values)
     {query, "#{not_prefix}#{field} && #{param_ref}"}
   end
 
-  defp operator_to_sql(query, field, :sl, value, negated?) do
+  defp operator_to_sql(query, field, :sl, value, negated?, nil, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
     {query, "#{not_prefix}#{field} << #{param_ref}"}
   end
 
-  defp operator_to_sql(query, field, :sr, value, negated?) do
+  defp operator_to_sql(query, field, :sr, value, negated?, nil, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
     {query, "#{not_prefix}#{field} >> #{param_ref}"}
   end
 
-  defp operator_to_sql(query, field, :nxl, value, negated?) do
+  defp operator_to_sql(query, field, :nxl, value, negated?, nil, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
     {query, "#{not_prefix}#{field} &< #{param_ref}"}
   end
 
-  defp operator_to_sql(query, field, :nxr, value, negated?) do
+  defp operator_to_sql(query, field, :nxr, value, negated?, nil, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
     {query, "#{not_prefix}#{field} &> #{param_ref}"}
   end
 
-  defp operator_to_sql(query, field, :adj, value, negated?) do
+  defp operator_to_sql(query, field, :adj, value, negated?, nil, _language) do
     not_prefix = if negated?, do: "NOT ", else: ""
     {query, param_ref} = add_param(query, value)
     {query, "#{not_prefix}#{field} -|- #{param_ref}"}

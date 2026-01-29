@@ -198,6 +198,35 @@ Supported relationship cardinalities:
 - **One-to-One (O2O)**: Customer → Profile (returns single object)
 - **Many-to-Many (M2M)**: Posts ↔ Tags through junction table (returns array)
 
+## Benchmarks
+
+Performance measured on Apple M1 Pro, Elixir 1.19.4, Erlang/OTP 27.3.4.6 with JIT enabled.
+
+### End-to-End SQL Generation
+
+| Query Type | Throughput | Avg Time | Memory |
+|------------|------------|----------|--------|
+| Simple select | 141K ops/s | 7.1 μs | 15 KB |
+| With ordering | 105K ops/s | 9.6 μs | 19 KB |
+| With filters | 102K ops/s | 9.8 μs | 18 KB |
+| With JSON paths | 81K ops/s | 12.4 μs | 24 KB |
+| Complex (filters + order + limit) | 65K ops/s | 15.3 μs | 29 KB |
+
+### Query Parsing (without SQL generation)
+
+| Query Type | Throughput | Avg Time |
+|------------|------------|----------|
+| Simple fields (3-8) | 371K-450K ops/s | 2.2-2.7 μs |
+| With aliases (2-4) | 368K-417K ops/s | 2.4-2.7 μs |
+| With type casts (2-4) | 374K-398K ops/s | 2.5-2.7 μs |
+| JSON paths (nested) | 208K-264K ops/s | 3.8-4.8 μs |
+
+Run benchmarks locally:
+
+```bash
+mix run bench/parser_bench.exs
+```
+
 ## Architecture
 
 ```mermaid

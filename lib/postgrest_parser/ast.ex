@@ -8,17 +8,18 @@ defmodule PostgrestParser.AST do
 
   defmodule Field do
     @moduledoc """
-    Represents a field reference, optionally with JSON path operations.
+    Represents a field reference, optionally with JSON path operations and type casting.
     """
     @type json_op ::
             {:arrow, String.t()} | {:double_arrow, String.t()} | {:array_index, integer()}
 
     @type t :: %__MODULE__{
             name: String.t(),
-            json_path: [json_op()]
+            json_path: [json_op()],
+            cast: String.t() | nil
           }
 
-    defstruct [:name, json_path: []]
+    defstruct [:name, :cast, json_path: []]
   end
 
   defmodule Filter do
@@ -28,6 +29,7 @@ defmodule PostgrestParser.AST do
     Examples:
     - id=eq.1 -> %Filter{field: "id", operator: :eq, value: "1"}
     - name=not.eq.john -> %Filter{field: "name", operator: :eq, value: "john", negated?: true}
+    - name=like(any).{John%,Jane%} -> %Filter{field: "name", operator: :like, value: ["John%", "Jane%"], quantifier: :any}
     """
     @type operator ::
             :eq
@@ -55,14 +57,18 @@ defmodule PostgrestParser.AST do
             | :nxr
             | :adj
 
+    @type quantifier :: :any | :all
+
     @type t :: %__MODULE__{
             field: Field.t() | String.t(),
             operator: operator(),
             value: String.t() | [String.t()],
+            quantifier: quantifier() | nil,
+            language: String.t() | nil,
             negated?: boolean()
           }
 
-    defstruct [:field, :operator, :value, negated?: false]
+    defstruct [:field, :operator, :value, :quantifier, :language, negated?: false]
   end
 
   defmodule SelectItem do

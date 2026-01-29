@@ -1,19 +1,85 @@
 defmodule PostgrestParser.OrderParser do
   @moduledoc """
-  Parses PostgREST order expressions into AST structures.
+  Parses PostgREST order expressions into AST structures using NimbleParsec.
 
   Supports:
   - Simple ordering: id, name
   - Direction: id.asc, id.desc
   - Nulls handling: id.asc.nullsfirst, id.desc.nullslast
   - Multiple columns: id.desc,name.asc
+  - JSON paths: data->key.desc
   """
 
-  alias PostgrestParser.AST.OrderTerm
-  alias PostgrestParser.FilterParser
+  import NimbleParsec
 
-  @directions ~w(asc desc)
-  @nulls_options ~w(nullsfirst nullslast)
+  alias PostgrestParser.AST.OrderTerm
+  alias PostgrestParser.Parsers.Common
+
+  # Direction keywords
+  direction =
+    choice([
+      string("desc") |> replace(:desc),
+      string("asc") |> replace(:asc)
+    ])
+
+  # Nulls handling keywords
+  nulls_option =
+    choice([
+      string("nullsfirst") |> replace(:first),
+      string("nullslast") |> replace(:last)
+    ])
+
+  # Identifier for field names (allows alphanumeric and underscore)
+  identifier_char = utf8_char([?a..?z, ?A..?Z, ?0..?9, ?_])
+
+  identifier =
+    times(identifier_char, min: 1)
+    |> reduce({List, :to_string, []})
+
+  # JSON operators: must try ->> before ->
+  json_operator =
+    choice([
+      string("->>") |> replace(:double_arrow),
+      string("->") |> replace(:arrow)
+    ])
+
+  # JSON path segment: operator + identifier
+  json_path_segment =
+    json_operator
+    |> concat(identifier)
+    |> reduce(:build_json_segment)
+
+  # Field with optional JSON path
+  field_with_json =
+    identifier
+    |> unwrap_and_tag(:name)
+    |> concat(repeat(json_path_segment) |> tag(:json_path))
+
+  # Order term: field[.direction][.nulls]
+  order_term =
+    field_with_json
+    |> optional(
+      ignore(string("."))
+      |> concat(direction |> unwrap_and_tag(:direction))
+    )
+    |> optional(
+      ignore(string("."))
+      |> concat(nulls_option |> unwrap_and_tag(:nulls))
+    )
+
+  # Multiple order terms separated by comma
+  order_list =
+    order_term
+    |> tag(:term)
+    |> repeat(
+      ignore(string(","))
+      |> concat(order_term |> tag(:term))
+    )
+
+  defparsec(:parse_internal, order_list)
+
+  @doc false
+  def build_json_segment([op, key]), do: {op, key}
 
   @doc """
   Parses an order string into a list of OrderTerm structs.
@@ -46,6 +112,39 @@ defmodule PostgrestParser.OrderParser do
   def parse(nil), do: {:ok, []}
 
   def parse(order_str) when is_binary(order_str) do
+    case parse_internal(order_str) do
+      {:ok, result, "", _, _, _} ->
+        terms = extract_terms(result)
+        {:ok, terms}
+
+      {:ok, _result, rest, _, _, _} ->
+        fallback_parse(order_str, "unparsed content: #{rest}")
+
+      {:error, reason, _rest, _, _, _} ->
+        fallback_parse(order_str, reason)
+    end
+  end
+
+  defp extract_terms(parsed) do
+    for {:term, term_data} <- parsed do
+      build_order_term(term_data)
+    end
+  end
+
+  defp build_order_term(term_data) do
+    alias PostgrestParser.AST.Field
+
+    %OrderTerm{
+      field: %Field{
+        name: Keyword.fetch!(term_data, :name),
+        json_path: Keyword.get(term_data, :json_path, [])
+      },
+      direction: Keyword.get(term_data, :direction, :asc),
+      nulls: Keyword.get(term_data, :nulls)
+    }
+  end
+
+  defp fallback_parse(order_str, _reason) do
     order_str
     |> String.split(",")
     |> Enum.map(&String.trim/1)
@@ -55,11 +154,14 @@ defmodule PostgrestParser.OrderParser do
         {:error, _} = error -> {:halt, error}
       end
     end)
-    |> case do
+    |> then(fn
       {:ok, terms} -> {:ok, Enum.reverse(terms)}
       {:error, _} = error -> error
-    end
+    end)
   end
+
+  @directions ~w(asc desc)
+  @nulls_options ~w(nullsfirst nullslast)
 
   @doc """
   Parses a single order term.
@@ -78,13 +180,29 @@ defmodule PostgrestParser.OrderParser do
 
     case extract_field_and_options(parts) do
       {:ok, field_str, direction, nulls} ->
-        with {:ok, field} <- FilterParser.parse_field(field_str) do
+        with {:ok, field} <- Common.parse_field(field_str) |> handle_field_parse() do
           {:ok, %OrderTerm{field: field, direction: direction, nulls: nulls}}
         end
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp handle_field_parse({:ok, result, "", _, _, _}) do
+    {:ok, Common.extract_field(result)}
+  end
+
+  defp handle_field_parse({:ok, result, rest, _, _, _}) do
+    # Field has unparsed content (e.g., dots in field name)
+    # Combine the parsed name with the rest
+    field = Common.extract_field(result)
+    {:ok, %{field | name: field.name <> rest}}
+  end
+
+  defp handle_field_parse({:error, _reason, _rest, _, _, _}) do
+    # Let the fallback string parser handle this case
+    {:error, :use_fallback}
   end
 
   defp extract_field_and_options(parts) do

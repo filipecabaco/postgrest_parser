@@ -1,6 +1,6 @@
 defmodule PostgrestParser.LogicParser do
   @moduledoc """
-  Parses PostgREST boolean logic expressions into AST structures.
+  Parses PostgREST boolean logic expressions into AST structures using NimbleParsec.
 
   Supports:
   - and(filter1,filter2,...) - logical AND
@@ -9,8 +9,78 @@ defmodule PostgrestParser.LogicParser do
   - Nested: and(filter1,or(filter2,filter3))
   """
 
+  import NimbleParsec
+
   alias PostgrestParser.AST.LogicTree
   alias PostgrestParser.FilterParser
+
+  # Logic operators
+  logic_op =
+    choice([
+      string("and") |> replace(:and),
+      string("or") |> replace(:or)
+    ])
+
+  # Negation prefix for logic keys
+  logic_negation = string("not.") |> replace(true)
+
+  # Logic key parser: "and", "or", "not.and", "not.or"
+  logic_key_parser =
+    optional(logic_negation |> unwrap_and_tag(:negated))
+    |> concat(logic_op |> unwrap_and_tag(:operator))
+
+  defparsec(:parse_key_internal, logic_key_parser)
+
+  # Character that's not a delimiter in conditions
+  condition_char = utf8_char(not: ?(, not: ?), not: ?,)
+
+  # Simple text (field.op.value or field=op.value)
+  condition_text =
+    times(condition_char, min: 1)
+    |> reduce({List, :to_string, []})
+
+  # Recursive definitions for nested logic
+  defcombinatorp(
+    :condition_content,
+    parsec(:logic_condition)
+    |> repeat(
+      ignore(string(","))
+      |> concat(parsec(:logic_condition))
+    )
+  )
+
+  defcombinatorp(
+    :nested_logic_expr,
+    optional(logic_negation |> unwrap_and_tag(:negated))
+    |> concat(logic_op |> unwrap_and_tag(:operator))
+    |> ignore(string("("))
+    |> concat(parsec(:condition_content) |> tag(:conditions))
+    |> ignore(string(")"))
+    |> tag(:nested_logic)
+  )
+
+  defcombinatorp(
+    :simple_condition,
+    condition_text
+    |> tag(:filter_text)
+  )
+
+  # A logic condition is either a nested logic expression or a simple filter
+  defcombinatorp(
+    :logic_condition,
+    choice([
+      parsec(:nested_logic_expr),
+      parsec(:simple_condition)
+    ])
+  )
+
+  # Value parser: (conditions...)
+  value_parser =
+    ignore(string("("))
+    |> concat(parsec(:condition_content))
+    |> ignore(string(")"))
+
+  defparsec(:parse_value_internal, value_parser)
 
   @doc """
   Parses a logic expression into a LogicTree struct.
@@ -65,16 +135,30 @@ defmodule PostgrestParser.LogicParser do
       false
   """
   @spec logic_key?(String.t()) :: boolean()
-  def logic_key?("and"), do: true
-  def logic_key?("or"), do: true
-  def logic_key?("not.and"), do: true
-  def logic_key?("not.or"), do: true
-  def logic_key?(_), do: false
+  def logic_key?(key) do
+    case parse_key_internal(key) do
+      {:ok, _result, "", _, _, _} -> true
+      _ -> false
+    end
+  end
 
-  defp parse_key("not.and"), do: {true, :and}
-  defp parse_key("not.or"), do: {true, :or}
-  defp parse_key("and"), do: {false, :and}
-  defp parse_key("or"), do: {false, :or}
+  defp parse_key(key) do
+    case parse_key_internal(key) do
+      {:ok, result, "", _, _, _} ->
+        negated = Keyword.get(result, :negated, false)
+        operator = Keyword.fetch!(result, :operator)
+        {negated, operator}
+
+      _ ->
+        # Fallback
+        fallback_parse_key(key)
+    end
+  end
+
+  defp fallback_parse_key("not.and"), do: {true, :and}
+  defp fallback_parse_key("not.or"), do: {true, :or}
+  defp fallback_parse_key("and"), do: {false, :and}
+  defp fallback_parse_key("or"), do: {false, :or}
 
   defp extract_conditions_str(value) do
     case Regex.run(~r/^\((.*)\)$/, value, capture: :all_but_first) do
@@ -84,23 +168,23 @@ defmodule PostgrestParser.LogicParser do
   end
 
   defp parse_conditions(str) do
-    case split_conditions(str) do
-      {:ok, parts} ->
-        parts
-        |> Enum.reduce_while({:ok, []}, fn part, {:ok, acc} ->
-          case parse_condition(String.trim(part)) do
-            {:ok, condition} -> {:cont, {:ok, [condition | acc]}}
-            {:error, _} = error -> {:halt, error}
-          end
-        end)
-        |> case do
-          {:ok, conditions} -> {:ok, Enum.reverse(conditions)}
-          {:error, _} = error -> error
-        end
-
-      {:error, _} = error ->
-        error
+    with {:ok, parts} <- split_conditions(str) do
+      parse_condition_parts(parts)
     end
+  end
+
+  defp parse_condition_parts(parts) do
+    parts
+    |> Enum.reduce_while({:ok, []}, fn part, {:ok, acc} ->
+      case parse_condition(String.trim(part)) do
+        {:ok, condition} -> {:cont, {:ok, [condition | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> then(fn
+      {:ok, conditions} -> {:ok, Enum.reverse(conditions)}
+      {:error, _} = error -> error
+    end)
   end
 
   defp split_conditions(str) do
@@ -135,19 +219,11 @@ defmodule PostgrestParser.LogicParser do
     split_at_top_level_commas(rest, depth, current <> <<char::utf8>>, acc)
   end
 
-  defp parse_condition(condition_str) do
-    cond do
-      String.starts_with?(condition_str, "and(") or String.starts_with?(condition_str, "or(") ->
-        parse_nested_logic(condition_str)
-
-      String.starts_with?(condition_str, "not.and(") or
-          String.starts_with?(condition_str, "not.or(") ->
-        parse_nested_logic(condition_str)
-
-      true ->
-        parse_filter_condition(condition_str)
-    end
-  end
+  defp parse_condition("and(" <> _ = condition_str), do: parse_nested_logic(condition_str)
+  defp parse_condition("or(" <> _ = condition_str), do: parse_nested_logic(condition_str)
+  defp parse_condition("not.and(" <> _ = condition_str), do: parse_nested_logic(condition_str)
+  defp parse_condition("not.or(" <> _ = condition_str), do: parse_nested_logic(condition_str)
+  defp parse_condition(condition_str), do: parse_filter_condition(condition_str)
 
   defp parse_nested_logic(str) do
     case Regex.run(~r/^(not\.)?(and|or)\((.+)\)$/, str) do
@@ -169,6 +245,23 @@ defmodule PostgrestParser.LogicParser do
   end
 
   defp parse_filter_condition(str) do
+    has_equals = String.contains?(str, "=")
+    is_logic_equals = String.match?(str, ~r/^(not\.)?(and|or)=/)
+
+    case {has_equals, is_logic_equals} do
+      {true, false} -> parse_equals_notation(str)
+      _ -> parse_dot_notation(str)
+    end
+  end
+
+  defp parse_equals_notation(str) do
+    case String.split(str, "=", parts: 2) do
+      [field, operator_value] -> FilterParser.parse(field, operator_value)
+      _ -> parse_dot_notation(str)
+    end
+  end
+
+  defp parse_dot_notation(str) do
     case String.split(str, ".", parts: 3) do
       [field, "not", rest] ->
         case String.split(rest, ".", parts: 2) do

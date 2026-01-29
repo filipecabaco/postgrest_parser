@@ -145,29 +145,30 @@ defmodule PostgrestParser.RelationBuilder do
   defp build_joins_for_relations(relations, context) do
     relations
     |> Enum.reduce_while({:ok, {[], []}}, fn relation, {:ok, {joins, selects}} ->
-      case find_relationship(relation, context) do
-        {:ok, relationship} ->
-          {join_sql, select_sql} =
-            if relationship.cardinality == :m2m do
-              build_m2m_join(relation, relationship, context.parent_alias, context.depth)
-            else
-              build_single_relation_join(
-                relation,
-                relationship,
-                context.parent_alias,
-                context.depth
-              )
-            end
-
-          {:cont, {:ok, {[join_sql | joins], [select_sql | selects]}}}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
-      end
+      build_relation_join(relation, context, joins, selects)
     end)
-    |> case do
+    |> then(fn
       {:ok, {joins, selects}} -> {:ok, {Enum.reverse(joins), Enum.reverse(selects)}}
       error -> error
+    end)
+  end
+
+  defp build_relation_join(relation, context, joins, selects) do
+    case find_relationship(relation, context) do
+      {:ok, relationship} ->
+        {join_sql, select_sql} = build_join_sql(relation, relationship, context)
+        {:cont, {:ok, {[join_sql | joins], [select_sql | selects]}}}
+
+      {:error, reason} ->
+        {:halt, {:error, reason}}
+    end
+  end
+
+  defp build_join_sql(relation, relationship, context) do
+    if relationship.cardinality == :m2m do
+      build_m2m_join(relation, relationship, context.parent_alias, context.depth)
+    else
+      build_single_relation_join(relation, relationship, context.parent_alias, context.depth)
     end
   end
 
