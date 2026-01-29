@@ -111,11 +111,19 @@ jobs:
           PGPASSWORD: postgres
         run: psql -h localhost -U postgres -d postgrest_parser_test -f priv/docker/init.sql
 
-      - name: Run unit tests
-        run: mix test --exclude integration
+      - name: Run all tests
+        run: mix test --trace
 
-      - name: Run integration tests
-        run: mix test --only integration
+      - name: Run tests with coverage
+        if: matrix.elixir == '1.16' && matrix.otp == '26'
+        run: mix test --cover
+
+      - name: Upload coverage artifacts
+        if: matrix.elixir == '1.16' && matrix.otp == '26'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: cover/
 
   dialyzer:
     name: Dialyzer

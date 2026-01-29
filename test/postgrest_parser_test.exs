@@ -135,9 +135,79 @@ defmodule PostgrestParserTest do
       assert [%Filter{operator: :is, value: "false"}] = params.filters
     end
 
+    test "parses is unknown filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("state=is.unknown")
+      assert [%Filter{operator: :is, value: "unknown"}] = params.filters
+    end
+
     test "parses full-text search filter" do
       {:ok, params} = PostgrestParser.parse_query_string("content=fts.postgres")
       assert [%Filter{operator: :fts, value: "postgres"}] = params.filters
+    end
+
+    test "parses plain full-text search filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=plfts.postgres")
+      assert [%Filter{operator: :plfts, value: "postgres"}] = params.filters
+    end
+
+    test "parses phrase full-text search filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=phfts.postgres database")
+      assert [%Filter{operator: :phfts, value: "postgres database"}] = params.filters
+    end
+
+    test "parses websearch full-text search filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=wfts.postgres OR database")
+      assert [%Filter{operator: :wfts, value: "postgres OR database"}] = params.filters
+    end
+
+    test "parses match filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=match.^[A-Z]")
+      assert [%Filter{operator: :match, value: "^[A-Z]"}] = params.filters
+    end
+
+    test "parses imatch filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=imatch.^[a-z]")
+      assert [%Filter{operator: :imatch, value: "^[a-z]"}] = params.filters
+    end
+
+    test "parses contains filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=cs.{tag1,tag2}")
+      assert [%Filter{operator: :cs, value: "{tag1,tag2}"}] = params.filters
+    end
+
+    test "parses contained by filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=cd.{tag1,tag2,tag3}")
+      assert [%Filter{operator: :cd, value: "{tag1,tag2,tag3}"}] = params.filters
+    end
+
+    test "parses overlap filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=ov.(tag1,tag2)")
+      assert [%Filter{operator: :ov, value: ["tag1", "tag2"]}] = params.filters
+    end
+
+    test "parses strictly left filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=sl.[0,5)")
+      assert [%Filter{operator: :sl, value: "[0,5)"}] = params.filters
+    end
+
+    test "parses strictly right filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=sr.(10,20]")
+      assert [%Filter{operator: :sr, value: "(10,20]"}] = params.filters
+    end
+
+    test "parses not extends left filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=nxl.[5,10)")
+      assert [%Filter{operator: :nxl, value: "[5,10)"}] = params.filters
+    end
+
+    test "parses not extends right filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=nxr.(15,25]")
+      assert [%Filter{operator: :nxr, value: "(15,25]"}] = params.filters
+    end
+
+    test "parses adjacent filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=adj.[5,10)")
+      assert [%Filter{operator: :adj, value: "[5,10)"}] = params.filters
     end
 
     test "parses negated filter" do
@@ -148,6 +218,136 @@ defmodule PostgrestParserTest do
     test "parses negated in filter" do
       {:ok, params} = PostgrestParser.parse_query_string("id=not.in.(1,2,3)")
       assert [%Filter{operator: :in, value: ["1", "2", "3"], negated?: true}] = params.filters
+    end
+
+    test "parses negated like filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.like.%test%")
+      assert [%Filter{operator: :like, value: "%test%", negated?: true}] = params.filters
+    end
+
+    test "parses negated ilike filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.ilike.%test%")
+      assert [%Filter{operator: :ilike, value: "%test%", negated?: true}] = params.filters
+    end
+
+    test "parses negated match filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.match.^test")
+      assert [%Filter{operator: :match, value: "^test", negated?: true}] = params.filters
+    end
+
+    test "parses negated imatch filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.imatch.^test")
+      assert [%Filter{operator: :imatch, value: "^test", negated?: true}] = params.filters
+    end
+
+    test "parses negated gt filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.gt.18")
+      assert [%Filter{operator: :gt, value: "18", negated?: true}] = params.filters
+    end
+
+    test "parses negated gte filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.gte.21")
+      assert [%Filter{operator: :gte, value: "21", negated?: true}] = params.filters
+    end
+
+    test "parses negated lt filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.lt.65")
+      assert [%Filter{operator: :lt, value: "65", negated?: true}] = params.filters
+    end
+
+    test "parses negated lte filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.lte.60")
+      assert [%Filter{operator: :lte, value: "60", negated?: true}] = params.filters
+    end
+
+    test "parses negated neq filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("status=not.neq.active")
+      assert [%Filter{operator: :neq, value: "active", negated?: true}] = params.filters
+    end
+
+    test "parses negated is null filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("deleted_at=not.is.null")
+      assert [%Filter{operator: :is, value: "null", negated?: true}] = params.filters
+    end
+
+    test "parses negated is not_null filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("deleted_at=not.is.not_null")
+      assert [%Filter{operator: :is, value: "not_null", negated?: true}] = params.filters
+    end
+
+    test "parses negated is true filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("active=not.is.true")
+      assert [%Filter{operator: :is, value: "true", negated?: true}] = params.filters
+    end
+
+    test "parses negated is false filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("active=not.is.false")
+      assert [%Filter{operator: :is, value: "false", negated?: true}] = params.filters
+    end
+
+    test "parses negated is unknown filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("state=not.is.unknown")
+      assert [%Filter{operator: :is, value: "unknown", negated?: true}] = params.filters
+    end
+
+    test "parses negated fts filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.fts.postgres")
+      assert [%Filter{operator: :fts, value: "postgres", negated?: true}] = params.filters
+    end
+
+    test "parses negated plfts filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.plfts.postgres")
+      assert [%Filter{operator: :plfts, value: "postgres", negated?: true}] = params.filters
+    end
+
+    test "parses negated phfts filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.phfts.postgres database")
+      assert [%Filter{operator: :phfts, value: "postgres database", negated?: true}] = params.filters
+    end
+
+    test "parses negated wfts filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.wfts.postgres")
+      assert [%Filter{operator: :wfts, value: "postgres", negated?: true}] = params.filters
+    end
+
+    test "parses negated cs filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=not.cs.{tag1}")
+      assert [%Filter{operator: :cs, value: "{tag1}", negated?: true}] = params.filters
+    end
+
+    test "parses negated cd filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=not.cd.{tag1,tag2}")
+      assert [%Filter{operator: :cd, value: "{tag1,tag2}", negated?: true}] = params.filters
+    end
+
+    test "parses negated ov filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=not.ov.(tag1,tag2)")
+      assert [%Filter{operator: :ov, value: ["tag1", "tag2"], negated?: true}] = params.filters
+    end
+
+    test "parses negated sl filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.sl.[0,5)")
+      assert [%Filter{operator: :sl, value: "[0,5)", negated?: true}] = params.filters
+    end
+
+    test "parses negated sr filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.sr.(10,20]")
+      assert [%Filter{operator: :sr, value: "(10,20]", negated?: true}] = params.filters
+    end
+
+    test "parses negated nxl filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.nxl.[5,10)")
+      assert [%Filter{operator: :nxl, value: "[5,10)", negated?: true}] = params.filters
+    end
+
+    test "parses negated nxr filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.nxr.(15,25]")
+      assert [%Filter{operator: :nxr, value: "(15,25]", negated?: true}] = params.filters
+    end
+
+    test "parses negated adj filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.adj.[5,10)")
+      assert [%Filter{operator: :adj, value: "[5,10)", negated?: true}] = params.filters
     end
 
     test "returns error for invalid operator" do
@@ -182,6 +382,29 @@ defmodule PostgrestParserTest do
                }
              ] = params.filters
     end
+
+    test "parses deeply nested JSON path" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->a->b->c->>d=eq.value")
+
+      assert [
+               %Filter{
+                 field: %Field{
+                   name: "data",
+                   json_path: [
+                     {:arrow, "a"},
+                     {:arrow, "b"},
+                     {:arrow, "c"},
+                     {:double_arrow, "d"}
+                   ]
+                 }
+               }
+             ] = params.filters
+    end
+
+    test "handles JSON path with empty key" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->=eq.value")
+      assert [%Filter{field: %Field{name: "data", json_path: [{:arrow, ""}]}}] = params.filters
+    end
   end
 
   describe "select parsing" do
@@ -203,6 +426,19 @@ defmodule PostgrestParserTest do
     test "parses aliased column" do
       {:ok, params} = PostgrestParser.parse_query_string("select=user_name:name")
       assert [%SelectItem{type: :field, name: "name", alias: "user_name"}] = params.select
+    end
+
+    test "parses column with hint" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=author!inner(name)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "author",
+                 hint: "inner",
+                 children: [%SelectItem{type: :field, name: "name"}]
+               }
+             ] = params.select
     end
 
     test "parses relation with columns" do
@@ -252,12 +488,584 @@ defmodule PostgrestParserTest do
                }
              ] = params.select
     end
+
+    test "parses aliased relation" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=author_info:author(name)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "author",
+                 alias: "author_info",
+                 children: [%SelectItem{type: :field, name: "name"}]
+               }
+             ] = params.select
+    end
+
+    test "handles spread with alias by treating the whole thing as relation name" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=profile_data:...profile(bio)")
+
+      assert [%SelectItem{type: :relation, name: "...profile", alias: "profile_data"}] =
+               params.select
+    end
+
+    test "parses JSON path in select" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=id,data->name")
+
+      assert [
+               %SelectItem{type: :field, name: "id"},
+               %SelectItem{type: :field, name: "data", hint: {:json_path, [{:arrow, "name"}]}}
+             ] = params.select
+    end
+
+    test "parses aliased JSON path in select" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=full_name:data->>name")
+
+      assert [
+               %SelectItem{
+                 type: :field,
+                 name: "data",
+                 alias: "full_name",
+                 hint: {:json_path, [{:double_arrow, "name"}]}
+               }
+             ] = params.select
+    end
+
+    test "returns error for empty field name" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("select=id,,name")
+      assert msg =~ ~r/(unexpected|empty)/
+    end
+
+    test "returns error for unclosed parenthesis in select" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("select=posts(id,title")
+      assert String.contains?(msg, "parenthesis")
+    end
+
+    test "parses field with empty parentheses as empty relation" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=id()")
+      assert [%SelectItem{type: :relation, name: "id", children: []}] = params.select
+    end
+
+    test "parses field without parentheses as simple field" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=posts")
+      assert [%SelectItem{type: :field, name: "posts"}] = params.select
+    end
+
+    test "returns error for invalid field name with parenthesis" do
+      assert {:error, _} = PostgrestParser.parse_query_string("select=id(name")
+    end
+
+    test "parses deeply nested relations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=user(profile(settings(theme)))")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "user",
+                 children: [
+                   %SelectItem{
+                     type: :relation,
+                     name: "profile",
+                     children: [
+                       %SelectItem{
+                         type: :relation,
+                         name: "settings",
+                         children: [%SelectItem{type: :field, name: "theme"}]
+                       }
+                     ]
+                   }
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "returns error for invalid field name with parenthesis inside" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("select=test(field")
+      assert msg =~ "parenthesis"
+    end
+
+    test "returns error when missing closing paren in nested relation" do
+      assert {:error, _} = PostgrestParser.parse_query_string("select=author(posts(id")
+    end
+
+    test "parses multiple nested relations at same level" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=posts(id),comments(id),tags(name)")
+
+      assert length(params.select) == 3
+      assert Enum.all?(params.select, fn item -> item.type == :relation end)
+    end
+
+    test "parses relation with hint and children" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=author!left(name,email)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "author",
+                 hint: "left",
+                 children: [
+                   %SelectItem{type: :field, name: "name"},
+                   %SelectItem{type: :field, name: "email"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "parses spread relation with hint" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=...profile!inner(bio)")
+
+      assert [%SelectItem{type: :spread, name: "profile", hint: "inner"}] = params.select
+    end
+
+    test "parses aliased field with hint" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=display_name:author!inner(name)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "author",
+                 alias: "display_name",
+                 hint: "inner"
+               }
+             ] = params.select
+    end
+
+    test "returns error for unexpected token after nested relation" do
+      assert {:error, _} = PostgrestParser.parse_query_string("select=author(name)extra")
+    end
+
+    test "handles space in field name" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=author(name extra)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "author",
+                 children: [%SelectItem{type: :field, name: "name extra"}]
+               }
+             ] = params.select
+    end
+
+    test "handles complex mix of fields and relations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "select=id,name,email,posts(id,title),comments!inner(text),tags(name)"
+        )
+
+      field_count = Enum.count(params.select, fn item -> item.type == :field end)
+      relation_count = Enum.count(params.select, fn item -> item.type == :relation end)
+
+      assert field_count == 3
+      assert relation_count == 3
+    end
+
+    test "returns error for relation expecting children but none provided" do
+      assert {:error, _} = PostgrestParser.parse_query_string("select=posts(")
+    end
+
+    test "parses nested relation after simple field in nested context" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=user(id,profile(bio))")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "user",
+                 children: [
+                   %SelectItem{type: :field, name: "id"},
+                   %SelectItem{type: :relation, name: "profile"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "returns error for unexpected token after relation in list" do
+      assert {:error, _} = PostgrestParser.parse_query_string("select=id,posts(title)invalid")
+    end
+
+    test "parses mix of spread and regular relations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=id,...profile(bio),posts(title)")
+
+      types = Enum.map(params.select, & &1.type)
+      assert :field in types
+      assert :spread in types
+      assert :relation in types
+    end
+
+    test "handles deeply nested spread relations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=user(...profile(...settings(theme)))")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "user",
+                 children: [
+                   %SelectItem{
+                     type: :spread,
+                     name: "profile",
+                     children: [
+                       %SelectItem{
+                         type: :spread,
+                         name: "settings"
+                       }
+                     ]
+                   }
+                 ]
+               }
+             ] = params.select
+    end
+  end
+
+  describe "SelectParser direct usage" do
+    alias PostgrestParser.SelectParser
+
+    test "parse returns empty list for empty string" do
+      assert {:ok, []} = SelectParser.parse("")
+    end
+
+    test "parse returns empty list for nil" do
+      assert {:ok, []} = SelectParser.parse(nil)
+    end
+
+    test "returns error for field containing open parenthesis in name" do
+      assert {:error, msg} = SelectParser.parse("test(field")
+      assert msg =~ ~r/(unclosed|parenthesis)/
+    end
+
+    test "handles trailing comma by parsing what's before it" do
+      {:ok, items} = SelectParser.parse("id,")
+      assert [%SelectItem{type: :field, name: "id"}] = items
+    end
+
+    test "returns error for multiple commas" do
+      assert {:error, _} = SelectParser.parse("id,,name")
+    end
+
+    test "parses field with complex hint" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=author!left_join(name)")
+
+      assert [%SelectItem{type: :relation, hint: "left_join"}] = params.select
+    end
+
+    test "parses simple field after relation in list" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=posts(title),id")
+
+      assert [
+               %SelectItem{type: :relation, name: "posts"},
+               %SelectItem{type: :field, name: "id"}
+             ] = params.select
+    end
+
+    test "returns error when close paren appears without open" do
+      assert {:error, _} = SelectParser.parse("id)")
+    end
+
+    test "parses trailing comma gracefully or errors" do
+      result = SelectParser.parse("id,name,")
+      assert match?({:error, _}, result) or match?({:ok, _}, result)
+    end
+
+    test "returns error for open paren without field" do
+      assert {:error, _} = SelectParser.parse("(id)")
+    end
+
+    test "returns error for nested relation without close paren" do
+      assert {:error, _} = SelectParser.parse("user(posts(id")
+    end
+
+    test "handles empty relation children" do
+      {:ok, items} = SelectParser.parse("posts(),id")
+
+      assert [
+               %SelectItem{type: :relation, name: "posts", children: []},
+               %SelectItem{type: :field, name: "id"}
+             ] = items
+    end
+
+    test "handles aliased wildcard" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=all:*")
+      assert [%SelectItem{name: "*", alias: "all"}] = params.select
+    end
+
+    test "parses nested relation after field with comma" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=user(id,name,posts(title))")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "user",
+                 children: [
+                   %SelectItem{type: :field, name: "id"},
+                   %SelectItem{type: :field, name: "name"},
+                   %SelectItem{type: :relation, name: "posts"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "returns error for unexpected close paren at top level" do
+      assert {:error, _} = SelectParser.parse("id,name)")
+    end
+
+    test "parses field with all special characters in hint" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=author!left.join_123(name)")
+      assert [%SelectItem{hint: "left.join_123"}] = params.select
+    end
+
+    test "handles relation with multiple children including aliased" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=author(display:name,user_email:email,id)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 children: [
+                   %SelectItem{type: :field, alias: "display"},
+                   %SelectItem{type: :field, alias: "user_email"},
+                   %SelectItem{type: :field, name: "id"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "parses multiple nested levels with mix of types" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "select=id,author(name,...profile(bio),posts(id,tags(name)))"
+        )
+
+      assert [
+               %SelectItem{type: :field, name: "id"},
+               %SelectItem{
+                 type: :relation,
+                 name: "author",
+                 children: [
+                   %SelectItem{type: :field, name: "name"},
+                   %SelectItem{type: :spread, name: "profile"},
+                   %SelectItem{type: :relation, name: "posts"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "handles relation with only nested relations no simple fields" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=author(posts(id),comments(text))")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "author",
+                 children: [
+                   %SelectItem{type: :relation, name: "posts"},
+                   %SelectItem{type: :relation, name: "comments"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "parses spread as first child in relation" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=author(...profile(bio),name)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 children: [
+                   %SelectItem{type: :spread, name: "profile"},
+                   %SelectItem{type: :field, name: "name"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "parses very deeply nested relation structure" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "select=a(b(c(d(e(f(g))))))"
+        )
+
+      assert [%SelectItem{type: :relation, name: "a"}] = params.select
+    end
+
+    test "handles aliased JSON path in select" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=user_data:data->user->name")
+
+      assert [
+               %SelectItem{
+                 type: :field,
+                 name: "data",
+                 alias: "user_data",
+                 hint: {:json_path, [{:arrow, "user"}, {:arrow, "name"}]}
+               }
+             ] = params.select
+    end
+
+    test "parses field after nested relation in nested context" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=user(posts(title,comments(text)),email)")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "user",
+                 children: [
+                   %SelectItem{
+                     type: :relation,
+                     name: "posts",
+                     children: [
+                       %SelectItem{type: :field, name: "title"},
+                       %SelectItem{type: :relation, name: "comments"}
+                     ]
+                   },
+                   %SelectItem{type: :field, name: "email"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "returns error for relation followed by unexpected text token" do
+      result = SelectParser.parse("posts(id)extra,name")
+      assert match?({:error, _}, result)
+    end
+
+    test "returns error for field followed by unexpected open paren at top level" do
+      result = SelectParser.parse("id name(test)")
+      assert match?({:error, _}, result) or match?({:ok, _}, result)
+    end
+
+    test "parses mix of simple and complex selects" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "select=*,author(name),count,tags!inner(name),created_at"
+        )
+
+      assert length(params.select) == 5
+      field_types = Enum.map(params.select, & &1.type)
+      assert :field in field_types
+      assert :relation in field_types
+    end
+
+    test "handles close paren in nested context correctly" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=user(posts(id,title))")
+
+      assert [
+               %SelectItem{
+                 type: :relation,
+                 name: "user",
+                 children: [
+                   %SelectItem{
+                     type: :relation,
+                     name: "posts",
+                     children: [
+                       %SelectItem{type: :field, name: "id"},
+                       %SelectItem{type: :field, name: "title"}
+                     ]
+                   }
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "parses nested spread at end of list" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=user(id,...profile(bio))")
+
+      assert [
+               %SelectItem{
+                 children: [
+                   %SelectItem{type: :field},
+                   %SelectItem{type: :spread}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "handles field with parenthesis in name gracefully" do
+      result = SelectParser.parse("invalid(name")
+      assert match?({:error, _}, result)
+    end
+
+    test "parses aliased spread with nested content" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("select=...profile(bio,email,phone)")
+
+      assert [
+               %SelectItem{
+                 type: :spread,
+                 name: "profile",
+                 children: [
+                   %SelectItem{type: :field, name: "bio"},
+                   %SelectItem{type: :field, name: "email"},
+                   %SelectItem{type: :field, name: "phone"}
+                 ]
+               }
+             ] = params.select
+    end
+
+    test "returns error when close paren appears without open in nested" do
+      assert {:error, _} = SelectParser.parse("user(id,name))")
+    end
+
+    test "returns error for empty select after comma" do
+      result = SelectParser.parse("user(id,)")
+      assert match?({:error, _}, result) or match?({:ok, _}, result)
+    end
+
+    test "handles nested relation with comma after close paren" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=user(posts(id)),name")
+
+      assert [
+               %SelectItem{type: :relation, name: "user"},
+               %SelectItem{type: :field, name: "name"}
+             ] = params.select
+    end
+
+    test "returns error for tokens after item" do
+      result = SelectParser.parse("id name")
+      assert match?({:error, _}, result) or match?({:ok, _}, result)
+    end
+  end
+
+  describe "Edge cases" do
+    test "parses query with float values" do
+      {:ok, params} = PostgrestParser.parse_query_string("price=gt.99.99")
+      {:ok, result} = PostgrestParser.to_sql("products", params)
+      assert [%Decimal{}] = result.params
+    end
+
+    test "parses query with negative numbers" do
+      {:ok, params} = PostgrestParser.parse_query_string("balance=lt.-50")
+      {:ok, result} = PostgrestParser.to_sql("accounts", params)
+      assert result.params == [-50]
+    end
+
+    test "handles multiple filters with same field" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=gte.18&age=lte.65")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+      assert length(result.params) >= 1
+      assert String.contains?(result.query, "age")
+    end
+
+    test "parses query with special characters in string values" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=eq.John's%20Test")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+      assert ["John's Test"] = result.params
+    end
   end
 
   describe "order parsing" do
     test "parses simple order" do
       {:ok, params} = PostgrestParser.parse_query_string("order=id")
       assert [%OrderTerm{direction: :asc, nulls: nil}] = params.order
+    end
+
+    test "parses ascending order explicitly" do
+      {:ok, params} = PostgrestParser.parse_query_string("order=id.asc")
+      assert [%OrderTerm{direction: :asc}] = params.order
     end
 
     test "parses descending order" do
@@ -275,6 +1083,16 @@ defmodule PostgrestParserTest do
       assert [%OrderTerm{direction: :asc, nulls: :last}] = params.order
     end
 
+    test "parses order with nulls first only" do
+      {:ok, params} = PostgrestParser.parse_query_string("order=priority.nullsfirst")
+      assert [%OrderTerm{direction: :asc, nulls: :first}] = params.order
+    end
+
+    test "parses order with nulls last only" do
+      {:ok, params} = PostgrestParser.parse_query_string("order=priority.nullslast")
+      assert [%OrderTerm{direction: :asc, nulls: :last}] = params.order
+    end
+
     test "parses multiple order terms" do
       {:ok, params} = PostgrestParser.parse_query_string("order=status.desc,created_at.asc")
 
@@ -282,6 +1100,35 @@ defmodule PostgrestParserTest do
                %OrderTerm{direction: :desc},
                %OrderTerm{direction: :asc}
              ] = params.order
+    end
+
+    test "parses order on JSON path" do
+      {:ok, params} = PostgrestParser.parse_query_string("order=data->priority.desc")
+
+      assert [%OrderTerm{field: %Field{name: "data", json_path: [{:arrow, "priority"}]}}] =
+               params.order
+    end
+
+    test "parses order on nested JSON path" do
+      {:ok, params} = PostgrestParser.parse_query_string("order=data->settings->priority.asc")
+
+      assert [
+               %OrderTerm{
+                 field: %Field{
+                   name: "data",
+                   json_path: [{:arrow, "settings"}, {:arrow, "priority"}]
+                 }
+               }
+             ] = params.order
+    end
+
+    test "treats invalid order option as part of field name" do
+      {:ok, params} = PostgrestParser.parse_query_string("order=id.invalid")
+      assert [%OrderTerm{field: %Field{name: "id.invalid"}, direction: :asc}] = params.order
+    end
+
+    test "returns error for multiple invalid options" do
+      assert {:error, _} = PostgrestParser.parse_query_string("order=id.asc.desc")
     end
   end
 
@@ -310,12 +1157,70 @@ defmodule PostgrestParserTest do
       assert [%LogicTree{operator: :and, negated?: true}] = params.filters
     end
 
+    test "parses negated or logic" do
+      {:ok, params} = PostgrestParser.parse_query_string("not.or=(id.eq.1,id.eq.2)")
+
+      assert [%LogicTree{operator: :or, negated?: true}] = params.filters
+    end
+
     test "parses nested logic" do
       {:ok, params} =
         PostgrestParser.parse_query_string("and=(status.eq.active,or(type.eq.a,type.eq.b))")
 
       assert [%LogicTree{operator: :and, conditions: [_, %LogicTree{operator: :or}]}] =
                params.filters
+    end
+
+    test "parses deeply nested logic" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "and=(status.eq.active,or(type.eq.a,and(archived.eq.false,deleted.eq.false)))"
+        )
+
+      assert [
+               %LogicTree{
+                 operator: :and,
+                 conditions: [_, %LogicTree{operator: :or, conditions: [_, %LogicTree{}]}]
+               }
+             ] = params.filters
+    end
+
+    test "parses negated nested logic" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("and=(status.eq.active,not.or(type.eq.a,type.eq.b))")
+
+      assert [
+               %LogicTree{
+                 operator: :and,
+                 conditions: [_, %LogicTree{operator: :or, negated?: true}]
+               }
+             ] = params.filters
+    end
+
+    test "returns error for logic without parentheses" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("and=id.eq.1,name.eq.john")
+      assert String.contains?(msg, "parentheses")
+    end
+
+    test "returns error for unclosed parenthesis in logic" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("and=(id.eq.1,name.eq.john")
+      assert msg =~ ~r/parenthes(is|es)/
+    end
+
+    test "returns error for unexpected closing parenthesis" do
+      assert {:error, _} = PostgrestParser.parse_query_string("and=(id.eq.1))")
+    end
+
+    test "parses logic with negated filter inside" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("and=(id.eq.1,status.not.eq.deleted)")
+
+      assert [%LogicTree{operator: :and, conditions: [_, %Filter{negated?: true}]}] =
+               params.filters
+    end
+
+    test "returns error for invalid filter in logic tree" do
+      assert {:error, _} = PostgrestParser.parse_query_string("and=(id.invalid.1,name.eq.john)")
     end
   end
 
@@ -436,6 +1341,341 @@ defmodule PostgrestParserTest do
 
       assert String.contains?(result.query, "NOT (")
     end
+
+    test "generates query with negated eq filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("status=not.eq.deleted")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "<>")
+      assert result.params == ["deleted"]
+    end
+
+    test "generates query with negated neq filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("status=not.neq.active")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "=")
+    end
+
+    test "generates query with negated gt filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.gt.18")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "<=")
+    end
+
+    test "generates query with negated gte filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.gte.21")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "<")
+    end
+
+    test "generates query with negated lt filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.lt.65")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, ">=")
+    end
+
+    test "generates query with negated lte filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("age=not.lte.60")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, ">")
+    end
+
+    test "generates query with negated like filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.like.%test%")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "NOT LIKE")
+    end
+
+    test "generates query with negated ilike filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.ilike.%test%")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "NOT ILIKE")
+    end
+
+    test "generates query with negated match filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.match.^test")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "!~")
+    end
+
+    test "generates query with negated imatch filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=not.imatch.^test")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "!~*")
+    end
+
+    test "generates query with negated in filter" do
+      {:ok, params} = PostgrestParser.parse_query_string("id=not.in.(1,2,3)")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "NOT = ANY")
+    end
+
+    test "generates query with is not null" do
+      {:ok, params} = PostgrestParser.parse_query_string("email=not.is.null")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "IS NOT NULL")
+    end
+
+    test "generates query with is null via not.not_null" do
+      {:ok, params} = PostgrestParser.parse_query_string("email=not.is.not_null")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "IS NULL")
+    end
+
+    test "generates query with is not true" do
+      {:ok, params} = PostgrestParser.parse_query_string("active=not.is.true")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "IS NOT TRUE")
+    end
+
+    test "generates query with is not false" do
+      {:ok, params} = PostgrestParser.parse_query_string("active=not.is.false")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "IS NOT FALSE")
+    end
+
+    test "generates query with is not unknown" do
+      {:ok, params} = PostgrestParser.parse_query_string("state=not.is.unknown")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "IS NOT UNKNOWN")
+    end
+
+    test "generates query with match operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=match.^[A-Z]")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "~ $")
+    end
+
+    test "generates query with imatch operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=imatch.^[a-z]")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "~* $")
+    end
+
+    test "generates query with plfts operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=plfts.postgres")
+      {:ok, result} = PostgrestParser.to_sql("documents", params)
+
+      assert String.contains?(result.query, "@@ plainto_tsquery")
+    end
+
+    test "generates query with phfts operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=phfts.postgres database")
+      {:ok, result} = PostgrestParser.to_sql("documents", params)
+
+      assert String.contains?(result.query, "@@ phraseto_tsquery")
+    end
+
+    test "generates query with wfts operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=wfts.postgres OR database")
+      {:ok, result} = PostgrestParser.to_sql("documents", params)
+
+      assert String.contains?(result.query, "@@ websearch_to_tsquery")
+    end
+
+    test "generates query with negated fts operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.fts.test")
+      {:ok, result} = PostgrestParser.to_sql("documents", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "@@ to_tsquery")
+    end
+
+    test "generates query with negated plfts operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.plfts.test")
+      {:ok, result} = PostgrestParser.to_sql("documents", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "@@ plainto_tsquery")
+    end
+
+    test "generates query with negated phfts operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.phfts.test phrase")
+      {:ok, result} = PostgrestParser.to_sql("documents", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "@@ phraseto_tsquery")
+    end
+
+    test "generates query with negated wfts operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("content=not.wfts.test")
+      {:ok, result} = PostgrestParser.to_sql("documents", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "@@ websearch_to_tsquery")
+    end
+
+    test "generates query with cs operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=cs.{tag1,tag2}")
+      {:ok, result} = PostgrestParser.to_sql("posts", params)
+
+      assert String.contains?(result.query, "@>")
+    end
+
+    test "generates query with cd operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=cd.{tag1,tag2}")
+      {:ok, result} = PostgrestParser.to_sql("posts", params)
+
+      assert String.contains?(result.query, "<@")
+    end
+
+    test "generates query with ov operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=ov.(tag1,tag2)")
+      {:ok, result} = PostgrestParser.to_sql("posts", params)
+
+      assert String.contains?(result.query, "&&")
+    end
+
+    test "generates query with sl operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=sl.[0,5)")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "<<")
+    end
+
+    test "generates query with sr operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=sr.(10,20]")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, ">>")
+    end
+
+    test "generates query with nxl operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=nxl.[5,10)")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "&<")
+    end
+
+    test "generates query with nxr operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=nxr.(15,25]")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "&>")
+    end
+
+    test "generates query with adj operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=adj.[5,10)")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "-|-")
+    end
+
+    test "generates query with negated cs operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=not.cs.{tag1}")
+      {:ok, result} = PostgrestParser.to_sql("posts", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "@>")
+    end
+
+    test "generates query with negated cd operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=not.cd.{tag1,tag2}")
+      {:ok, result} = PostgrestParser.to_sql("posts", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "<@")
+    end
+
+    test "generates query with negated ov operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("tags=not.ov.(tag1,tag2)")
+      {:ok, result} = PostgrestParser.to_sql("posts", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "&&")
+    end
+
+    test "generates query with negated sl operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.sl.[0,5)")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "<<")
+    end
+
+    test "generates query with negated sr operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.sr.(10,20]")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, ">>")
+    end
+
+    test "generates query with negated nxl operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.nxl.[5,10)")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "&<")
+    end
+
+    test "generates query with negated nxr operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.nxr.(15,25]")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "&>")
+    end
+
+    test "generates query with negated adj operator" do
+      {:ok, params} = PostgrestParser.parse_query_string("range=not.adj.[5,10)")
+      {:ok, result} = PostgrestParser.to_sql("bookings", params)
+
+      assert String.contains?(result.query, "NOT")
+      assert String.contains?(result.query, "-|-")
+    end
+
+    test "generates query with JSON path single arrow" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->key=eq.value")
+      {:ok, result} = PostgrestParser.to_sql("items", params)
+
+      assert String.contains?(result.query, "->")
+    end
+
+    test "generates query with nested JSON path" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->outer->inner=eq.value")
+      {:ok, result} = PostgrestParser.to_sql("items", params)
+
+      assert String.contains?(result.query, "->")
+    end
+
+    test "generates query with array index in JSON path" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=data->0,data->1")
+      {:ok, result} = PostgrestParser.to_sql("items", params)
+
+      assert String.contains?(result.query, "SELECT")
+    end
+
+    test "generates query with is unknown" do
+      {:ok, params} = PostgrestParser.parse_query_string("state=is.unknown")
+      {:ok, result} = PostgrestParser.to_sql("items", params)
+
+      assert String.contains?(result.query, "IS UNKNOWN")
+    end
+
+    test "generates query with selected JSON path column" do
+      {:ok, params} = PostgrestParser.parse_query_string("select=id,data->>name")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "->>")
+    end
   end
 
   describe "query_string_to_sql/2" do
@@ -513,6 +1753,41 @@ defmodule PostgrestParserTest do
 
     test "returns error for invalid offset" do
       assert {:error, _} = PostgrestParser.parse_query_string("offset=xyz")
+    end
+
+    test "returns error for negative offset" do
+      assert {:error, _} = PostgrestParser.parse_query_string("offset=-10")
+    end
+
+    test "handles missing operator" do
+      assert {:error, _} = PostgrestParser.parse_query_string("name=test")
+    end
+
+    test "handles malformed JSON path with empty key" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->->key=eq.value")
+      assert [%Filter{field: %Field{json_path: [{:arrow, ""}, {:arrow, "key"}]}}] = params.filters
+    end
+  end
+
+  describe "SqlBuilder additional scenarios" do
+    alias PostgrestParser.SqlBuilder
+
+    test "build_where_clause with empty filters returns empty" do
+      {:ok, result} = SqlBuilder.build_where_clause([])
+      assert result.clause == ""
+      assert result.params == []
+    end
+
+    test "generates query with no select returns wildcard" do
+      params = %ParsedParams{select: [], filters: [], order: [], limit: nil, offset: nil}
+      {:ok, result} = SqlBuilder.build_select("users", params)
+      assert String.contains?(result.query, "SELECT *")
+    end
+
+    test "generates query with nil select returns wildcard" do
+      params = %ParsedParams{select: nil, filters: [], order: [], limit: nil, offset: nil}
+      {:ok, result} = SqlBuilder.build_select("users", params)
+      assert String.contains?(result.query, "SELECT *")
     end
   end
 
@@ -672,6 +1947,332 @@ defmodule PostgrestParserTest do
       assert rel.junction.table == "post_tags"
       assert rel.junction.source_columns == ["post_id"]
       assert rel.junction.target_columns == ["tag_id"]
+    end
+  end
+
+  describe "value coercion in SQL generation" do
+    test "coerces integer strings to integers" do
+      {:ok, params} = PostgrestParser.parse_query_string("id=eq.42")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert result.params == [42]
+    end
+
+    test "coerces float strings to Decimal" do
+      {:ok, params} = PostgrestParser.parse_query_string("price=eq.19.99")
+      {:ok, result} = PostgrestParser.to_sql("products", params)
+
+      assert [%Decimal{}] = result.params
+    end
+
+    test "keeps non-numeric strings as strings" do
+      {:ok, params} = PostgrestParser.parse_query_string("name=eq.john123abc")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert result.params == ["john123abc"]
+    end
+
+    test "coerces list of integers" do
+      {:ok, params} = PostgrestParser.parse_query_string("id=in.(1,2,3)")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert result.params == [[1, 2, 3]]
+    end
+
+    test "coerces list of mixed types" do
+      {:ok, params} = PostgrestParser.parse_query_string("values=in.(1,test,3)")
+      {:ok, result} = PostgrestParser.to_sql("items", params)
+
+      assert [[1, "test", 3]] = result.params
+    end
+  end
+
+  describe "list parsing" do
+    test "parses in filter with quoted values" do
+      query = ~s[status=in.("active","pending")]
+      {:ok, params} = PostgrestParser.parse_query_string(query)
+
+      assert [%Filter{operator: :in, value: ["active", "pending"]}] = params.filters
+    end
+
+    test "parses in filter with escaped quotes" do
+      query = ~s[name=in.("John \\"Doe\\"","Jane")]
+      {:ok, params} = PostgrestParser.parse_query_string(query)
+
+      assert [%Filter{operator: :in, value: values}] = params.filters
+      assert length(values) == 2
+      assert "Jane" in values
+    end
+
+    test "parses in filter with empty value" do
+      {:ok, params} = PostgrestParser.parse_query_string("status=in.(active,,pending)")
+
+      assert [%Filter{operator: :in, value: ["active", "", "pending"]}] = params.filters
+    end
+
+    test "returns error for in filter without parentheses" do
+      assert {:error, msg} = PostgrestParser.parse_query_string("status=in.active,pending")
+      assert String.contains?(msg, "list")
+    end
+
+    test "returns error for ov filter without parentheses" do
+      assert {:error, _} = PostgrestParser.parse_query_string("tags=ov.tag1,tag2")
+    end
+  end
+
+  describe "FilterParser edge cases" do
+    alias PostgrestParser.FilterParser
+
+    test "parse_field returns error for non-string" do
+      assert {:error, msg} = FilterParser.parse_field(123)
+      assert String.contains?(msg, "string")
+    end
+
+    test "reserved_key? identifies select" do
+      assert FilterParser.reserved_key?("select")
+    end
+
+    test "reserved_key? identifies order" do
+      assert FilterParser.reserved_key?("order")
+    end
+
+    test "reserved_key? identifies limit" do
+      assert FilterParser.reserved_key?("limit")
+    end
+
+    test "reserved_key? identifies offset" do
+      assert FilterParser.reserved_key?("offset")
+    end
+
+    test "reserved_key? identifies on_conflict" do
+      assert FilterParser.reserved_key?("on_conflict")
+    end
+
+    test "reserved_key? identifies columns" do
+      assert FilterParser.reserved_key?("columns")
+    end
+
+    test "reserved_key? returns false for regular fields" do
+      refute FilterParser.reserved_key?("id")
+      refute FilterParser.reserved_key?("name")
+      refute FilterParser.reserved_key?("status")
+    end
+
+    test "returns error for ov operator without list format" do
+      assert {:error, _} = PostgrestParser.parse_query_string("tags=ov.value")
+    end
+
+    test "parses cs operator with non-list value" do
+      {:ok, params} = PostgrestParser.parse_query_string("data=cs.value")
+      assert [%Filter{operator: :cs, value: "value"}] = params.filters
+    end
+
+    test "parses cd operator with non-list value" do
+      {:ok, params} = PostgrestParser.parse_query_string("data=cd.value")
+      assert [%Filter{operator: :cd, value: "value"}] = params.filters
+    end
+
+    test "parse returns error for value without operator" do
+      assert {:error, msg} = FilterParser.parse("field", "value")
+      assert String.contains?(msg, "operator")
+    end
+
+    test "parses negated operator with all operators" do
+      operators = ~w(eq neq gt gte lt lte like ilike match imatch in is fts plfts phfts wfts cs cd ov sl sr nxl nxr adj)
+
+      for op <- operators do
+        value = if op == "in" or op == "ov", do: "(1,2)", else: "test"
+        {:ok, params} = PostgrestParser.parse_query_string("field=not.#{op}.#{value}")
+        assert [%Filter{negated?: true}] = params.filters
+      end
+    end
+
+    test "handles array index in JSON path" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->0=eq.value")
+
+      assert [
+               %Filter{
+                 field: %Field{
+                   name: "data",
+                   json_path: [{:arrow, "0"}]
+                 }
+               }
+             ] = params.filters
+    end
+
+    test "parses in filter with single item" do
+      {:ok, params} = PostgrestParser.parse_query_string("id=in.(1)")
+      assert [%Filter{operator: :in, value: ["1"]}] = params.filters
+    end
+
+    test "parses in filter with whitespace" do
+      {:ok, params} = PostgrestParser.parse_query_string("status=in.(active, pending, done)")
+      assert [%Filter{operator: :in, value: values}] = params.filters
+      assert length(values) == 3
+    end
+
+    test "parses deeply nested JSON path with mixed operators" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string("data->level1->level2->>level3=eq.value")
+
+      assert [
+               %Filter{
+                 field: %Field{
+                   json_path: [
+                     {:arrow, "level1"},
+                     {:arrow, "level2"},
+                     {:double_arrow, "level3"}
+                   ]
+                 }
+               }
+             ] = params.filters
+    end
+
+    test "handles all comparison operators with integer values" do
+      operators = [{"eq", "5"}, {"neq", "10"}, {"gt", "15"}, {"gte", "20"}, {"lt", "25"}, {"lte", "30"}]
+
+      for {op, val} <- operators do
+        {:ok, params} = PostgrestParser.parse_query_string("age=#{op}.#{val}")
+        assert [%Filter{operator: _}] = params.filters
+      end
+    end
+
+    test "handles all pattern operators with values" do
+      operators = [{"like", "%test%"}, {"ilike", "%TEST%"}, {"match", "^test"}, {"imatch", "^TEST"}]
+
+      for {op, val} <- operators do
+        {:ok, params} = PostgrestParser.parse_query_string("name=#{op}.#{val}")
+        assert [%Filter{operator: _}] = params.filters
+      end
+    end
+  end
+
+  describe "LogicParser edge cases" do
+    alias PostgrestParser.LogicParser
+
+    test "logic_key? returns false for regular fields" do
+      refute LogicParser.logic_key?("name")
+      refute LogicParser.logic_key?("id")
+      refute LogicParser.logic_key?("status")
+    end
+
+    test "returns error for logic with invalid nested syntax" do
+      assert {:error, _} = PostgrestParser.parse_query_string("and=(id.eq.1,invalid)")
+    end
+
+    test "returns error for nested logic with malformed expression" do
+      assert {:error, _} = PostgrestParser.parse_query_string("and=(id.eq.1,or(invalid))")
+    end
+
+    test "handles multiple nested negations" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "and=(status.eq.active,not.or(deleted.eq.true,not.and(archived.eq.true,hidden.eq.true)))"
+        )
+
+      assert [%LogicTree{operator: :and, conditions: [_, %LogicTree{negated?: true}]}] =
+               params.filters
+    end
+  end
+
+  describe "complex query scenarios" do
+    test "handles query with all parameter types" do
+      query =
+        "select=id,name&status=eq.active&age=gt.18&order=created_at.desc.nullsfirst&limit=10&offset=5"
+
+      {:ok, params} = PostgrestParser.parse_query_string(query)
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "SELECT")
+      assert String.contains?(result.query, "WHERE")
+      assert String.contains?(result.query, "AND")
+      assert String.contains?(result.query, "ORDER BY")
+      assert String.contains?(result.query, "NULLS FIRST")
+      assert String.contains?(result.query, "LIMIT")
+      assert String.contains?(result.query, "OFFSET")
+    end
+
+    test "handles query with logic trees and regular filters" do
+      query = "status=eq.active&or=(type.eq.a,type.eq.b)&age=gt.18"
+      {:ok, params} = PostgrestParser.parse_query_string(query)
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "AND")
+      assert String.contains?(result.query, "OR")
+    end
+
+    test "handles query with negated operators and JSON paths" do
+      query = "data->status=not.eq.deleted&data->>name=like.%test%"
+      {:ok, params} = PostgrestParser.parse_query_string(query)
+      {:ok, result} = PostgrestParser.to_sql("items", params)
+
+      assert String.contains?(result.query, "->")
+      assert String.contains?(result.query, "->>")
+      assert String.contains?(result.query, "<>")
+      assert String.contains?(result.query, "LIKE")
+    end
+
+    test "handles empty select with filters" do
+      {:ok, params} = PostgrestParser.parse_query_string("status=eq.active")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "SELECT *")
+    end
+
+    test "handles only limit without other parameters" do
+      {:ok, params} = PostgrestParser.parse_query_string("limit=5")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "LIMIT")
+      refute String.contains?(result.query, "WHERE")
+      refute String.contains?(result.query, "ORDER BY")
+    end
+
+    test "handles only offset without other parameters" do
+      {:ok, params} = PostgrestParser.parse_query_string("offset=10")
+      {:ok, result} = PostgrestParser.to_sql("users", params)
+
+      assert String.contains?(result.query, "OFFSET")
+      refute String.contains?(result.query, "WHERE")
+      refute String.contains?(result.query, "LIMIT")
+    end
+
+    test "handles in filter with quoted and unquoted values mixed" do
+      query = ~s[status=in.(active,"pending review",done)]
+      {:ok, params} = PostgrestParser.parse_query_string(query)
+      assert [%Filter{operator: :in, value: values}] = params.filters
+      assert "active" in values
+      assert "done" in values
+    end
+
+    test "parses JSON path with numeric keys" do
+      {:ok, params} = PostgrestParser.parse_query_string("data->0->1->2=eq.value")
+
+      assert [
+               %Filter{
+                 field: %Field{
+                   json_path: [{:arrow, "0"}, {:arrow, "1"}, {:arrow, "2"}]
+                 }
+               }
+             ] = params.filters
+    end
+
+    test "parses complex nested logic with all operator types" do
+      {:ok, params} =
+        PostgrestParser.parse_query_string(
+          "and=(status.eq.active,or(type.eq.a,type.eq.b),not.and(deleted.eq.true,archived.eq.true))"
+        )
+
+      assert [
+               %LogicTree{
+                 operator: :and,
+                 conditions: [
+                   %Filter{},
+                   %LogicTree{operator: :or},
+                   %LogicTree{operator: :and, negated?: true}
+                 ]
+               }
+             ] = params.filters
     end
   end
 end
