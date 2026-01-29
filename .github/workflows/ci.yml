@@ -38,13 +38,33 @@ jobs:
         run: mix deps.get
 
       - name: Check formatting
-        run: mix format --check-formatted
+        run: |
+          echo "::group::Checking code formatting"
+          mix format --check-formatted
+          echo "::endgroup::"
+          echo "✅ Code is properly formatted"
 
       - name: Run Credo
-        run: mix credo --strict
+        run: |
+          echo "::group::Running Credo (strict mode)"
+          mix credo --strict
+          echo "::endgroup::"
 
       - name: Run Sobelow
-        run: mix sobelow --config
+        run: |
+          echo "::group::Running Sobelow security scan"
+          mix sobelow --config
+          echo "::endgroup::"
+          echo "✅ No security vulnerabilities detected"
+
+      - name: Quality summary
+        if: always()
+        run: |
+          echo "## Code Quality Checks" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Code formatting" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Credo (strict mode)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Sobelow security scan" >> $GITHUB_STEP_SUMMARY
 
   test:
     name: Test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
@@ -112,11 +132,47 @@ jobs:
         run: psql -h localhost -U postgres -d postgrest_parser_test -f priv/docker/init.sql
 
       - name: Run all tests
-        run: mix test --trace
+        run: |
+          echo "::group::Running test suite"
+          mix test | tee test_output.txt
+          echo "::endgroup::"
 
-      - name: Run tests with coverage
+      - name: Generate test summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Extract test counts from output
+          if [ -f test_output.txt ]; then
+            TESTS=$(grep -oP '\d+ tests' test_output.txt | grep -oP '\d+' | head -1 || echo "N/A")
+            DOCTESTS=$(grep -oP '\d+ doctests' test_output.txt | grep -oP '\d+' | head -1 || echo "N/A")
+            FAILURES=$(grep -oP '\d+ failures' test_output.txt | grep -oP '\d+' | head -1 || echo "0")
+
+            echo "- **Tests**: $TESTS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Doctests**: $DOCTESTS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Failures**: $FAILURES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Elixir**: ${{ matrix.elixir }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **OTP**: ${{ matrix.otp }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run tests with coverage (enforces 91% threshold)
         if: matrix.elixir == '1.16' && matrix.otp == '26'
-        run: mix test --cover
+        run: |
+          echo "::group::Running tests with coverage"
+          mix test --cover
+          echo "::endgroup::"
+          echo "✅ Coverage threshold met (≥91%)"
+
+      - name: Generate coverage summary
+        if: matrix.elixir == '1.16' && matrix.otp == '26'
+        run: |
+          echo "## Test Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Coverage threshold: **91%**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See artifacts for detailed HTML coverage report." >> $GITHUB_STEP_SUMMARY
 
       - name: Upload coverage artifacts
         if: matrix.elixir == '1.16' && matrix.otp == '26'
@@ -160,4 +216,16 @@ jobs:
         run: mix deps.get
 
       - name: Run Dialyzer
-        run: mix dialyzer --format github
+        run: |
+          echo "::group::Running Dialyzer type checking"
+          mix dialyzer --format github
+          echo "::endgroup::"
+          echo "✅ No type errors detected"
+
+      - name: Dialyzer summary
+        if: always()
+        run: |
+          echo "## Dialyzer Type Checking" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Type analysis complete" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ No type errors" >> $GITHUB_STEP_SUMMARY

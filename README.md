@@ -2,7 +2,7 @@
 
 [![Hex.pm](https://img.shields.io/hexpm/v/postgrest_parser.svg)](https://hex.pm/packages/postgrest_parser)
 [![Documentation](https://img.shields.io/badge/docs-hexdocs-blue.svg)](https://hexdocs.pm/postgrest_parser)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 PostgREST URL-to-SQL parser for Elixir. Parse PostgREST-style query strings into safe, parameterized SQL queries.
 
@@ -164,38 +164,43 @@ Supported relationship cardinalities:
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    PostgrestParser                          │
-│  parse_query_string/1  │  to_sql/2  │  to_sql_with_relations│
-└─────────────────────────────────────────────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         ▼                    ▼                    ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  FilterParser   │  │  SelectParser   │  │   OrderParser   │
-│  (22 operators) │  │ (aliases, rels) │  │ (dir, nulls)    │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-         │                    │                    │
-         └────────────────────┼────────────────────┘
-                              ▼
-                    ┌─────────────────┐
-                    │      AST        │
-                    │ ParsedParams    │
-                    └─────────────────┘
-                              │
-         ┌────────────────────┴────────────────────┐
-         ▼                                         ▼
-┌─────────────────┐                      ┌─────────────────┐
-│   SqlBuilder    │                      │ RelationBuilder │
-│ (parameterized) │◄────────────────────►│ (LATERAL JOINs) │
-└─────────────────┘                      └─────────────────┘
-                                                  │
-                                                  ▼
-                                         ┌─────────────────┐
-                                         │  SchemaCache    │
-                                         │ (ETS + GenServer)│
-                                         └─────────────────┘
+```mermaid
+flowchart TD
+    %% Entry point
+    A["PostgrestParser<br/>parse_query_string/1<br/>to_sql/2<br/>to_sql_with_relations"]
+
+    %% Parsers
+    A --> B["FilterParser<br/>22 operators"]
+    A --> C["LogicParser<br/>and/or trees"]
+    A --> D["SelectParser<br/>aliases, relations"]
+    A --> E["OrderParser<br/>direction, nulls"]
+
+    %% AST intermediate representation
+    B --> F["AST ParsedParams<br/>select, filters, order,<br/>limit, offset"]
+    C --> F
+    D --> F
+    E --> F
+
+    %% SQL generation
+    F --> G["SqlBuilder<br/>parameterized queries"]
+
+    %% Relations handling
+    G --> H["RelationBuilder<br/>LATERAL JOINs"]
+    H --> G
+
+    %% Schema metadata
+    H --> I["SchemaCache<br/>ETS + GenServer<br/>table/column/FK metadata"]
+
+    %% Styling with high contrast colors
+    style A fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#fff
+    style B fill:#2C3E50,stroke:#7F8C8D,stroke-width:2px,color:#fff
+    style C fill:#2C3E50,stroke:#7F8C8D,stroke-width:2px,color:#fff
+    style D fill:#2C3E50,stroke:#7F8C8D,stroke-width:2px,color:#fff
+    style E fill:#2C3E50,stroke:#7F8C8D,stroke-width:2px,color:#fff
+    style F fill:#F39C12,stroke:#D68910,stroke-width:3px,color:#000
+    style G fill:#27AE60,stroke:#1E8449,stroke-width:3px,color:#fff
+    style H fill:#27AE60,stroke:#1E8449,stroke-width:3px,color:#fff
+    style I fill:#E74C3C,stroke:#C0392B,stroke-width:3px,color:#fff
 ```
 
 ## Development
@@ -246,7 +251,7 @@ PostgrestParser.query_string_to_sql("users", "name=eq.'; DROP TABLE users;--")
 
 ## License
 
-Apache-2.0 - See [LICENSE](LICENSE) for details.
+MIT - See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
